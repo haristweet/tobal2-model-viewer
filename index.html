@@ -54,7 +54,7 @@ canvas:active{cursor:grabbing}
 </style>
 </head>
 <body>
-<header><h1>トバル2 モデルビューア</h1><span class="sub">手元のディスクイメージからキャラクターを取り出して表示します</span><span class="rev">v1.2.1 ・ 非公式</span></header>
+<header><h1>トバル2 モデルビューア</h1><span class="sub">手元のディスクイメージからキャラクターを取り出して表示します</span><span class="rev">v1.3.0 ・ 非公式</span></header>
 <main>
   <aside id="side" hidden>
     <div><p class="label">キャラクター</p><div class="chars" id="chars"></div></div>
@@ -72,7 +72,7 @@ canvas:active{cursor:grabbing}
   <section class="stage">
     <canvas id="gl"></canvas>
     <div class="status" id="status"></div>
-    <div class="hint" id="hint" hidden>ドラッグで回転 ・ ホイールで拡大 ・ ダブルクリックで元に戻す</div>
+    <div class="hint" id="hint" hidden>ドラッグで回転 ・ 右ドラッグ／Shift＋ドラッグで移動 ・ ホイールで拡大 ・ ダブルクリックで元に戻す</div>
     <div class="drop" id="drop">
       <div class="card">
         <h2>ディスクイメージを読み込んでください</h2>
@@ -695,7 +695,8 @@ const bufs={p:gl.createBuffer(),n:gl.createBuffer(),c:gl.createBuffer(),t0:gl.cr
 const vramTex=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,vramTex);
 for(const [k,v] of [[gl.TEXTURE_MIN_FILTER,gl.NEAREST],[gl.TEXTURE_MAG_FILTER,gl.NEAREST],[gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE],[gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D,k,v);
 let triCount=0, center=[0,0,0], radius=1000;
-const view={yaw:0,pitch:0.08,dist:1};
+const view={yaw:0,pitch:0.08,dist:1,pan:[0,0,0]};
+const cam={s:[1,0,0],u:[0,1,0],half:1};   // 描画時のカメラの右・上方向と、注視点の面での画面の半分の高さ
 function upload(mesh,fit=true){
   const P=mesh.pos, N=new Float32Array(P.length);
   let mn=[1e9,1e9,1e9], mx=[-1e9,-1e9,-1e9];
@@ -704,7 +705,7 @@ function upload(mesh,fit=true){
     let nx=ay*bz-az*by,ny=az*bx-ax*bz,nz=ax*by-ay*bx; const l=Math.hypot(nx,ny,nz)||1; nx/=l;ny/=l;nz/=l;
     for(let k=0;k<3;k++){N[i+k*3]=nx;N[i+k*3+1]=ny;N[i+k*3+2]=nz; for(let a=0;a<3;a++){mn[a]=Math.min(mn[a],P[i+k*3+a]);mx[a]=Math.max(mx[a],P[i+k*3+a])}}
   }
-  if(fit){ center=mn.map((v,a)=>(v+mx[a])/2); radius=Math.hypot(mx[0]-mn[0],mx[1]-mn[1],mx[2]-mn[2])/2 }
+  if(fit){ center=mn.map((v,a)=>(v+mx[a])/2); radius=Math.hypot(mx[0]-mn[0],mx[1]-mn[1],mx[2]-mn[2])/2; view.pan=[0,0,0] }
   if(mesh.vram){ gl.bindTexture(gl.TEXTURE_2D,vramTex); gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,1024,512,0,gl.RGBA,gl.UNSIGNED_BYTE,mesh.vram) }
   for(const [k,data] of [["p",P],["n",N],["c",mesh.col],["t0",mesh.t0],["t1",mesh.t1]]){gl.bindBuffer(gl.ARRAY_BUFFER,bufs[k]);gl.bufferData(gl.ARRAY_BUFFER,data,gl.DYNAMIC_DRAW)}
   triCount=P.length/3;
@@ -716,24 +717,56 @@ function draw(){
   if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h}
   gl.viewport(0,0,w,h); gl.clearColor(0,0,0,0); gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT); gl.enable(gl.DEPTH_TEST);
   if(!triCount) return;
-  const d=radius*2.9*view.dist, cy=Math.cos(view.pitch);
-  const eye=[center[0]+d*cy*Math.cos(view.yaw),center[1]+d*Math.sin(view.pitch),center[2]+d*cy*Math.sin(view.yaw)];
-  const f=center.map((v,i)=>v-eye[i]); const fl=Math.hypot(...f); f.forEach((v,i)=>f[i]=v/fl);
+  const d=radius*2.9*view.dist, cy=Math.cos(view.pitch), tg=center.map((v,i)=>v+view.pan[i]);
+  const eye=[tg[0]+d*cy*Math.cos(view.yaw),tg[1]+d*Math.sin(view.pitch),tg[2]+d*cy*Math.sin(view.yaw)];
+  const f=tg.map((v,i)=>v-eye[i]); const fl=Math.hypot(...f); f.forEach((v,i)=>f[i]=v/fl);
   let s=[f[1]*0-f[2]*1,f[2]*0-f[0]*0,f[0]*1-f[1]*0]; const sl=Math.hypot(...s); s=s.map(v=>v/sl);
   const u=[s[1]*f[2]-s[2]*f[1],s[2]*f[0]-s[0]*f[2],s[0]*f[1]-s[1]*f[0]];
   const V=[s[0],u[0],-f[0],0, s[1],u[1],-f[1],0, s[2],u[2],-f[2],0, -(s[0]*eye[0]+s[1]*eye[1]+s[2]*eye[2]),-(u[0]*eye[0]+u[1]*eye[1]+u[2]*eye[2]),(f[0]*eye[0]+f[1]*eye[1]+f[2]*eye[2]),1];
-  const P=persp(0.62,w/h,radius*0.05,radius*20);
+  cam.s=s; cam.u=u; cam.half=d*Math.tan(0.31); cam.aspect=w/h;
+  const P=persp(0.62,w/h,radius*0.02,radius*20);
   gl.uniformMatrix4fv(gl.getUniformLocation(prog,"mvp"),false,mul4(P,V));
   gl.uniformMatrix4fv(gl.getUniformLocation(prog,"model"),false,[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]);
   for(const [k,size] of [["p",3],["n",3],["c",3],["t0",3],["t1",4]]){const loc=gl.getAttribLocation(prog,k); gl.bindBuffer(gl.ARRAY_BUFFER,bufs[k]); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc,size,gl.FLOAT,false,0,0)}
   gl.drawArrays(gl.TRIANGLES,0,triCount);
 }
-let dragging=null;
-canvas.addEventListener("pointerdown",e=>{dragging={x:e.clientX,y:e.clientY};canvas.setPointerCapture(e.pointerId)});
-canvas.addEventListener("pointermove",e=>{if(!dragging)return; view.yaw+= (e.clientX-dragging.x)*0.01; view.pitch=Math.max(-1.3,Math.min(1.3,view.pitch+(e.clientY-dragging.y)*0.01)); dragging={x:e.clientX,y:e.clientY}; draw()});
-canvas.addEventListener("pointerup",()=>dragging=null);
-canvas.addEventListener("wheel",e=>{e.preventDefault(); view.dist=Math.max(0.25,Math.min(3,view.dist*Math.exp(e.deltaY*0.001))); draw()},{passive:false});
-canvas.addEventListener("dblclick",()=>{view.yaw=0;view.pitch=0.08;view.dist=1;draw()});
+// 操作: 左ドラッグ=回転、右ドラッグ／Shift＋ドラッグ／中ボタン=移動、ホイール=カーソル位置へ拡大、2本指=移動と拡大
+const pointers=new Map(); let dragMode=null;
+function panBy(dx,dy){   // 画面上の移動量(CSS px)だけ注視点をずらす
+  const k=2*cam.half/canvas.clientHeight;
+  for(let i=0;i<3;i++) view.pan[i]-=(cam.s[i]*dx-cam.u[i]*dy)*k;
+}
+function zoomAt(factor,cx,cy){   // cx, cy = キャンバス内の位置(CSS px)。その点が画面上で動かないように拡大する
+  const nd=Math.max(0.06,Math.min(3,view.dist*factor)), real=nd/view.dist;
+  const ox=(cx-canvas.clientWidth/2), oy=(cy-canvas.clientHeight/2);
+  panBy(-ox*(1-real),-oy*(1-real));
+  view.dist=nd;
+}
+canvas.addEventListener("contextmenu",e=>e.preventDefault());
+canvas.addEventListener("pointerdown",e=>{
+  try{ canvas.setPointerCapture(e.pointerId) }catch(_){}
+  pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  dragMode=pointers.size>=2?"pinch":(e.button===2||e.button===1||e.shiftKey)?"pan":"rotate";
+});
+canvas.addEventListener("pointermove",e=>{
+  const p=pointers.get(e.pointerId); if(!p) return;
+  if(dragMode==="pinch"&&pointers.size>=2){
+    const [a,b]=[...pointers.values()], before=Math.hypot(a.x-b.x,a.y-b.y), mx0=(a.x+b.x)/2, my0=(a.y+b.y)/2;
+    p.x=e.clientX; p.y=e.clientY;
+    const [c,d]=[...pointers.values()], after=Math.hypot(c.x-d.x,c.y-d.y), mx1=(c.x+d.x)/2, my1=(c.y+d.y)/2;
+    panBy(mx1-mx0,my1-my0);
+    const r=canvas.getBoundingClientRect();
+    if(before>0&&after>0) zoomAt(before/after,mx1-r.left,my1-r.top);
+  } else {
+    const dx=e.clientX-p.x, dy=e.clientY-p.y; p.x=e.clientX; p.y=e.clientY;
+    if(dragMode==="pan") panBy(dx,dy);
+    else if(dragMode==="rotate"){ view.yaw+=dx*0.01; view.pitch=Math.max(-1.3,Math.min(1.3,view.pitch+dy*0.01)) }
+  }
+  draw();
+});
+for(const t of ["pointerup","pointercancel"]) canvas.addEventListener(t,e=>{ pointers.delete(e.pointerId); if(pointers.size===0) dragMode=null; else if(dragMode==="pinch") dragMode="pan" });
+canvas.addEventListener("wheel",e=>{ e.preventDefault(); const r=canvas.getBoundingClientRect(); zoomAt(Math.exp(e.deltaY*(e.ctrlKey?0.01:0.001)),e.clientX-r.left,e.clientY-r.top); draw() },{passive:false});
+canvas.addEventListener("dblclick",()=>{view.yaw=0;view.pitch=0.08;view.dist=1;view.pan=[0,0,0];draw()});
 addEventListener("resize",draw);
 
 // ============================================================
