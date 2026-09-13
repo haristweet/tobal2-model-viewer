@@ -54,7 +54,7 @@ canvas:active{cursor:grabbing}
 </style>
 </head>
 <body>
-<header><h1>トバル2 モデルビューア</h1><span class="sub">手元のディスクイメージからキャラクターを取り出して表示します</span><span class="rev">v1.3.0 ・ 非公式</span></header>
+<header><h1>トバル2 モデルビューア</h1><span class="sub">手元のディスクイメージからキャラクターを取り出して表示します</span><span class="rev">v1.3.1 ・ 非公式</span></header>
 <main>
   <aside id="side" hidden>
     <div><p class="label">キャラクター</p><div class="chars" id="chars"></div></div>
@@ -477,8 +477,9 @@ function buildMesh(blk,W){
           const q=fp+(flat?8:4), clut=dv.getUint16(q+2,true), page=dv.getUint16(q+6,true);
           uvs=[[blk[q],blk[q+1]],[blk[q+4],blk[q+5]],[blk[q+8],blk[q+9]],[blk[q+10],blk[q+11]]];
           tp=[[4,8,16,16][(page>>7)&3],(page&15)*64,((page>>4)&1)*256,(clut&63)*16,clut>>6];
-          if(flat) fc=[128,128,128];
-        } else if(flat){const cw=dv.getUint32(fp+4,true); fc=[cw&255,(cw>>>8)&255,(cw>>>16)&255]}
+        }
+        if(flat){ // 語1 = 法線の番号(下位8bit) と 色の番号(次の8bit)。色は現在の色の列から ×4 バイト目（ゲームの描画処理 0x800248a0 と同じ）
+          const ci=cp+((dv.getUint32(fp+4,true)>>>8)&255)*4; fc=[blk[ci],blk[ci+1],blk[ci+2]] }
         fp+=sz;
         if(!idx.every(i=>slot[i]!==undefined)) continue;
         const vi=idx.map(i=>slot[i]);
