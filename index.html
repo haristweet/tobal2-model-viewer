@@ -46,15 +46,26 @@ canvas:active{cursor:grabbing}
 .drop.over .card{outline:3px dashed var(--accent);outline-offset:6px}
 .err{color:#b91c1c;font-size:13px;margin-top:8px}
 [hidden]{display:none!important}
+.pick-motion{width:100%;font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:7px;background:#fff;color:var(--ink)}
+.motion-ctl{display:flex;gap:8px;align-items:center;margin-top:8px}
+.play{all:unset;cursor:pointer;background:var(--ink);color:#fff;border-radius:6px;padding:5px 10px;font-size:12px;white-space:nowrap}
+.motion-ctl input{flex:1;min-width:0;accent-color:var(--accent)}
 </style>
 </head>
 <body>
-<header><h1>トバル2 モデルビューア</h1><span class="sub">手元のディスクイメージからキャラクターを取り出して表示します</span><span class="rev">v1.0.2 ・ 非公式</span></header>
+<header><h1>トバル2 モデルビューア</h1><span class="sub">手元のディスクイメージからキャラクターを取り出して表示します</span><span class="rev">v1.1.0 ・ 非公式</span></header>
 <main>
   <aside id="side" hidden>
     <div><p class="label">キャラクター</p><div class="chars" id="chars"></div></div>
     <div><p class="label">カラー</p><div class="seg" id="side-seg"><button data-v="1P" aria-pressed="true">1P</button><button data-v="2P" aria-pressed="false">2P</button></div></div>
     <div><p class="label">モデル</p><div class="seg" id="lod-seg"><button data-v="1" aria-pressed="true">対戦</button><button data-v="2" aria-pressed="false">勝利</button><button data-v="0" aria-pressed="false">クエスト</button></div></div>
+    <div><p class="label">動き</p>
+      <select id="motion" class="pick-motion"><option value="0">立ち姿</option></select>
+      <div id="motion-ctl" class="motion-ctl" hidden>
+        <button id="play" class="play">一時停止</button>
+        <input id="scrub" type="range" min="0" max="0" value="0" aria-label="コマ">
+      </div>
+    </div>
   </aside>
   <section class="stage">
     <canvas id="gl"></canvas>
@@ -79,10 +90,11 @@ canvas:active{cursor:grabbing}
 const EXE_TEXT_ADDR = 0x80010000;
 const FILE_TABLE_ADDR = 0x800CD660, FILE_TABLE_COUNT = 0x552;
 const CHARACTERS = [
-  ["チュージ",[12,13,14],[15,16,17]], ["エポン",[18,19,20],[21,22,23]], ["オライムス",[24,25,26],[27,28,29]],
-  ["ホム",[30,31,32],[33,34,35]], ["フェイ",[36,37,38],[39,40,41]], ["マリー",[42,43,44],[45,46,47]],
-  ["イール",[48,49,50],[51,52,53]], ["ドクターV",[72,73,74],[75,76,77]], ["チャコ",[78,79,80],[81,82,83]],
-  ["グリン",[84,85,86],[87,88,89]],
+  // [名前, 1Pモデル(クエスト/対戦/勝利), 2Pモデル, モーションファイル]
+  ["チュージ",[12,13,14],[15,16,17],616], ["エポン",[18,19,20],[21,22,23],618], ["オライムス",[24,25,26],[27,28,29],617],
+  ["ホム",[30,31,32],[33,34,35],620], ["フェイ",[36,37,38],[39,40,41],621], ["マリー",[42,43,44],[45,46,47],622],
+  ["イール",[48,49,50],[51,52,53],619], ["ドクターV",[72,73,74],[75,76,77],623], ["チャコ",[78,79,80],[81,82,83],624],
+  ["グリン",[84,85,86],[87,88,89],627],
 ];
 // 描画命令の関節番号 → 骨格の枠
 const DLMAP={"1":1,"2":1,"3":62,"4":41,"5":47,"6":2,"7":52,"8":3,"9":54,"10":4,"11":56,"12":5,"13":48,"14":6,"15":53,"16":7,"17":55,"18":8,"19":57,"20":9,"21":20,"22":21,"23":22,"24":23,"25":24,"26":25,"27":20,"28":21,"29":22,"30":23,"31":24,"32":24,"33":49,"34":12,"35":58,"36":13,"37":60,"38":14,"39":50,"40":15,"41":59,"42":16,"43":61,"44":17,"45":63,"46":42,"47":42,"48":26,"49":27,"50":71,"51":44,"52":64,"53":45,"54":65,"55":46,"56":66,"57":66,"58":68,"59":69,"60":70,"61":35,"62":51,"63":80,"64":81};
@@ -395,6 +407,12 @@ function pose(bones,local=REST_LOCAL){
     const P=W[p], off=apply(P.R,bi===null?[0,0,0]:bones[bi]);
     W[s]={R:mat(P.R,L),T:[P.T[0]+off[0],P.T[1]+off[1],P.T[2]+off[2]]};
   }
+  return finishSlots(W,bones);
+}
+// 主要な枠（0〜17, 30, 31）から、胸・頭・中間の枠や付属部品の枠を足す
+function finishSlots(W,bones){
+  if(!W[41]) W[41]={R:mat(W[10].R,RZ180),T:W[10].T};
+  if(!W[42]) W[42]={R:mat(W[11].R,FIXED[42]),T:W[11].T};
   for(const [m,[a,b]] of Object.entries(MID)) W[m]={R:ortho(W[a].R.map((v,i)=>(v+W[b].R[i])/2)),T:W[b].T};
   // 眼球（勝利モデルだけ骨の表の 36・37 に位置が入る）。首の枠からの位置で、向きは首と同じ
   for(const [s,bi] of [[80,36],[81,37]]){
@@ -413,10 +431,10 @@ function pose(bones,local=REST_LOCAL){
   W[51]={R:ortho(W[2].R.map((v,i)=>(v+W[6].R[i])/2)),T:W[2].T.map((v,i)=>(v+W[6].T[i])/2)};
   return W;
 }
-function buildMesh(blk){
+function buildMesh(blk,W){
   const dv=new DataView(blk.buffer,blk.byteOffset,blk.byteLength);
   const h=k=>dv.getUint32(k*4,true);
-  const W=pose(bonesFromBlock(blk));
+  W=W||pose(bonesFromBlock(blk));
   const jointMat=j=>{const s=DLMAP[j]; return (s!==undefined&&W[s])||W[42]};
   const PRIM={24:[3,8,1],25:[4,8,1],28:[3,20,1],29:[4,20,1],32:[3,4,0],33:[4,4,0],34:[3,16,0],35:[4,16,0]};
   let vp=h(5)+16, fp=h(4)+16, cp=h(7)+16, cur=W[42];
@@ -460,6 +478,176 @@ function buildMesh(blk){
 }
 
 // ============================================================
+//  モーション: 読み込んだ実行ファイルのコードを、小さな MIPS＋GTE エミュレータで動かして関節の行列を得る
+// ============================================================
+const U32=x=>x>>>0;
+function toU32(x){ x%=4294967296; if(x<0)x+=4294967296; return x }   // 53bit までの整数を 32bit に
+const S16=v=>(v<<16)>>16;
+class Gte{
+  constructor(){ this.d=new Array(32).fill(0); this.c=new Array(32).fill(0) }
+  rdata(r){
+    const d=this.d;
+    if(r===1||r===3||r===5||(r>=8&&r<=11)) return U32(S16(d[r]));
+    if(r===7||(r>=16&&r<=19)) return d[r]&0xffff;
+    if(r===15) return d[14];
+    if(r===28||r===29){ const f=x=>Math.max(0,Math.min(31,x>>7)); return f(S16(d[9]))|(f(S16(d[10]))<<5)|(f(S16(d[11]))<<10) }
+    return U32(d[r]);
+  }
+  wdata(r,v){
+    v=U32(v); const d=this.d;
+    if(r===15){ d[12]=d[13]; d[13]=d[14]; d[14]=v; return }
+    if(r===28){ d[9]=(v&31)*0x80; d[10]=((v>>5)&31)*0x80; d[11]=((v>>10)&31)*0x80 }
+    if(r===29||r===31) return;
+    d[r]=v;
+    if(r===30){ const x=(v&0x80000000)?U32(~v):v; d[31]=x===0?32:Math.clz32(x) }
+  }
+  rctl(r){ const v=this.c[r]; return (r===4||r===12||r===20||(r>=26&&r<=27)||r===29||r===30)?U32(S16(v)):U32(v) }
+  wctl(r,v){ this.c[r]=U32(v) }
+  cmd(w){
+    const f=w&0x3f, sf=((w>>19)&1)?4096:1, lm=(w>>10)&1, d=this.d, c=this.c;
+    const IR=[S16(d[9]),S16(d[10]),S16(d[11])];
+    let mac;
+    if(f===0x12){
+      const mx=(w>>17)&3, vv=(w>>15)&3, cv=(w>>13)&3;
+      const b=[0,8,16][mx];
+      const M=mx<3?[[S16(c[b]),S16(c[b]>>16),S16(c[b+1])],[S16(c[b+1]>>16),S16(c[b+2]),S16(c[b+2]>>16)],[S16(c[b+3]),S16(c[b+3]>>16),S16(c[b+4])]]:[[0,0,0],[0,0,0],[0,0,0]];
+      const V=vv===3?IR:[S16(d[vv*2]),S16(d[vv*2]>>16),S16(d[vv*2+1])];
+      const tb=[5,13,21][cv]; const T=cv<3?[c[tb]|0,c[tb+1]|0,c[tb+2]|0]:[0,0,0];
+      mac=[0,1,2].map(i=>Math.floor((T[i]*4096+M[i][0]*V[0]+M[i][1]*V[1]+M[i][2]*V[2])/sf));
+    } else if(f===0x28){ mac=IR.map(x=>Math.floor(x*x/sf)) }
+    else if(f===0x0c){ const D=[S16(c[0]),S16(c[2]),S16(c[4])]; mac=[Math.floor((IR[2]*D[1]-IR[1]*D[2])/sf),Math.floor((IR[0]*D[2]-IR[2]*D[0])/sf),Math.floor((IR[1]*D[0]-IR[0]*D[1])/sf)] }
+    else if(f===0x3d){ const i0=S16(d[8]); mac=IR.map(x=>Math.floor(i0*x/sf)) }
+    else if(f===0x3e){ const i0=S16(d[8]); mac=[25,26,27].map((r,i)=>Math.floor(((d[r]|0)*sf+i0*IR[i])/sf)) }
+    else throw new Error("未対応の GTE 命令 "+f.toString(16));
+    d[25]=toU32(mac[0]); d[26]=toU32(mac[1]); d[27]=toU32(mac[2]);
+    const lo=lm?0:-0x8000;
+    for(let i=0;i<3;i++) d[9+i]=Math.max(lo,Math.min(0x7fff,mac[i]))&0xffff;
+  }
+}
+class Mips{
+  constructor(){ this.ram=new Uint8Array(0x200000); this.sp=new Uint8Array(0x1000); this.r=new Int32Array(32); this.hi=0; this.lo=0; this.gte=new Gte() }
+  // 番地 → [配列, 位置]
+  loc(a){ a=U32(a); const p=a&0x1fffffff; if(p<0x200000) return [this.ram,p]; if(a>=0x1f800000&&a<0x1f801000) return [this.sp,a-0x1f800000]; return null }
+  r8(a){ const l=this.loc(a); return l?l[0][l[1]]:0 }
+  r16(a){ const l=this.loc(a); return l?l[0][l[1]]|(l[0][l[1]+1]<<8):0 }
+  r32(a){ const l=this.loc(a); if(!l) return 0; const m=l[0],i=l[1]; return (m[i]|(m[i+1]<<8)|(m[i+2]<<16)|(m[i+3]<<24))>>>0 }
+  w8(a,v){ const l=this.loc(a); if(l) l[0][l[1]]=v }
+  w16(a,v){ const l=this.loc(a); if(l){ l[0][l[1]]=v; l[0][l[1]+1]=v>>8 } }
+  w32(a,v){ const l=this.loc(a); if(l){ const m=l[0],i=l[1]; m[i]=v; m[i+1]=v>>8; m[i+2]=v>>16; m[i+3]=v>>24 } }
+  call(pc,args=[],limit=3000000){
+    const RET=0x80001000, r=this.r;
+    r.fill(0); args.forEach((v,i)=>r[4+i]=v); r[29]=0x1f800f00|0; r[28]=0x800f7ed4|0; r[31]=RET|0;
+    let npc=U32(pc)+4; pc=U32(pc);
+    for(let n=0;n<limit;n++){
+      if(pc===RET) return U32(r[2]);
+      const w=this.r32(pc), op=w>>>26, rs=(w>>>21)&31, rt=(w>>>16)&31, rd=(w>>>11)&31, sa=(w>>>6)&31, imm=(w<<16)>>16, uimm=w&0xffff;
+      let next=U32(npc+4);
+      switch(op){
+        case 0: switch(w&63){
+          case 0: r[rd]=r[rt]<<sa; break;
+          case 2: r[rd]=r[rt]>>>sa; break;
+          case 3: r[rd]=r[rt]>>sa; break;
+          case 4: r[rd]=r[rt]<<(r[rs]&31); break;
+          case 6: r[rd]=r[rt]>>>(r[rs]&31); break;
+          case 7: r[rd]=r[rt]>>(r[rs]&31); break;
+          case 8: next=U32(r[rs]); break;
+          case 9: { const t=U32(r[rs]); r[rd]=next; next=t; break }
+          case 12: case 13: throw new Error("システムコール/中断 @"+pc.toString(16));
+          case 16: r[rd]=this.hi; break; case 17: this.hi=r[rs]; break;
+          case 18: r[rd]=this.lo; break; case 19: this.lo=r[rs]; break;
+          case 24: { const p=BigInt(r[rs])*BigInt(r[rt]); this.lo=Number(BigInt.asIntN(32,p)); this.hi=Number(BigInt.asIntN(32,p>>32n)); break }
+          case 25: { const p=BigInt(U32(r[rs]))*BigInt(U32(r[rt])); this.lo=Number(BigInt.asIntN(32,p)); this.hi=Number(BigInt.asIntN(32,p>>32n)); break }
+          case 26: { const a=r[rs],b=r[rt]; if(b===0){ this.lo=a>=0?-1:1; this.hi=a } else if(a===-2147483648&&b===-1){ this.lo=a; this.hi=0 } else { this.lo=(a/b)|0; this.hi=a%b|0 } break }
+          case 27: { const a=U32(r[rs]),b=U32(r[rt]); if(b===0){ this.lo=-1; this.hi=a|0 } else { this.lo=Math.floor(a/b)|0; this.hi=(a%b)|0 } break }
+          case 32: case 33: r[rd]=r[rs]+r[rt]; break;
+          case 34: case 35: r[rd]=r[rs]-r[rt]; break;
+          case 36: r[rd]=r[rs]&r[rt]; break; case 37: r[rd]=r[rs]|r[rt]; break;
+          case 38: r[rd]=r[rs]^r[rt]; break; case 39: r[rd]=~(r[rs]|r[rt]); break;
+          case 42: r[rd]=r[rs]<r[rt]?1:0; break; case 43: r[rd]=U32(r[rs])<U32(r[rt])?1:0; break;
+          default: throw new Error("未対応の命令 "+w.toString(16)+" @"+pc.toString(16));
+        } break;
+        case 1: { const t=r[rs]; const take=(rt&1)?t>=0:t<0; if(rt&0x10) r[31]=next; if(take) next=U32(npc+(imm<<2)); break }
+        case 2: next=U32((npc&0xf0000000)|((w&0x3ffffff)<<2)); break;
+        case 3: r[31]=next; next=U32((npc&0xf0000000)|((w&0x3ffffff)<<2)); break;
+        case 4: if(r[rs]===r[rt]) next=U32(npc+(imm<<2)); break;
+        case 5: if(r[rs]!==r[rt]) next=U32(npc+(imm<<2)); break;
+        case 6: if(r[rs]<=0) next=U32(npc+(imm<<2)); break;
+        case 7: if(r[rs]>0) next=U32(npc+(imm<<2)); break;
+        case 8: case 9: r[rt]=r[rs]+imm; break;
+        case 10: r[rt]=r[rs]<imm?1:0; break;
+        case 11: r[rt]=U32(r[rs])<U32(imm)?1:0; break;
+        case 12: r[rt]=r[rs]&uimm; break; case 13: r[rt]=r[rs]|uimm; break; case 14: r[rt]=r[rs]^uimm; break;
+        case 15: r[rt]=uimm<<16; break;
+        case 16: break;   // COP0 は無視
+        case 18: {
+          const g=this.gte;
+          if((w>>>25)&1) g.cmd(w);
+          else if(rs===0) r[rt]=g.rdata(rd); else if(rs===2) r[rt]=g.rctl(rd);
+          else if(rs===4) g.wdata(rd,r[rt]); else if(rs===6) g.wctl(rd,r[rt]);
+          break }
+        case 32: r[rt]=(this.r8(r[rs]+imm)<<24)>>24; break;
+        case 33: r[rt]=(this.r16(r[rs]+imm)<<16)>>16; break;
+        case 35: r[rt]=this.r32(r[rs]+imm); break;
+        case 36: r[rt]=this.r8(r[rs]+imm); break;
+        case 37: r[rt]=this.r16(r[rs]+imm); break;
+        case 40: this.w8(r[rs]+imm,r[rt]); break;
+        case 41: this.w16(r[rs]+imm,r[rt]); break;
+        case 43: this.w32(r[rs]+imm,r[rt]); break;
+        case 50: this.gte.wdata(rt,this.r32(r[rs]+imm)); break;
+        case 58: this.w32(r[rs]+imm,this.gte.rdata(rt)); break;
+        default: throw new Error("未対応の命令 "+w.toString(16)+" @"+pc.toString(16));
+      }
+      r[0]=0; pc=npc; npc=next;
+    }
+    throw new Error("命令数の上限に達しました");
+  }
+}
+// ゲームの番地（解析で求めた値）
+const EMU={P1:0x80123dcc, P2:0x80126010, ST1:0x801004f8, ST2:0x801008f4, MOT:0x8018abbc,
+  SELECT:0x80048a40, START:0x80048bdc, UPDATE:0x80046b40, SINTAB:0x800f1384, MSTACK:0x800f8c8c, MOTPTR:0x8012835c};
+class MotionPlayer{
+  constructor(exe,motionFile,bones){
+    const m=this.m=new Mips(), dv=new DataView(exe.buffer,exe.byteOffset,exe.byteLength);
+    const tsize=dv.getUint32(0x1c,true);
+    m.ram.set(exe.subarray(0x800,0x800+tsize),0x10000);
+    for(let k=0;k<4096;k++){ const c=Math.round(4096*Math.cos(2*Math.PI*k/4096)), s=Math.round(4096*Math.sin(2*Math.PI*k/4096)); m.w32(EMU.SINTAB+4*k,((c&0xffff)<<16)|(s&0xffff)) }
+    m.w32(EMU.MSTACK,0x1f800004);
+    m.ram.set(motionFile,EMU.MOT&0x1fffffff);
+    m.w32(EMU.MOTPTR,EMU.MOT); m.w32(EMU.MOTPTR+4,EMU.MOT);
+    for(const [P,ST,O] of [[EMU.P1,EMU.ST1,EMU.P2],[EMU.P2,EMU.ST2,EMU.P1]]){
+      m.w32(P+0x2128,ST); m.w32(P+0x1548,O); m.w32(P+0x1584,EMU.MOT);
+      bones.forEach((b,k)=>{ if(k<72){ m.w16(P+0x1a0+8*k,b[0]); m.w16(P+0x1a2+8*k,b[1]); m.w16(P+0x1a4+8*k,b[2]) } });
+    }
+    m.w32(EMU.P2+0x468,0x399); m.w32(EMU.P2+0x46c,0x542);   // 相手（2P）を正面に置く
+    const parts=unpack(motionFile);
+    this.table=EMU.MOT+4+4*(parts.length+1)+parts[0].length+parts[1].length;
+    this.count=m.r32(this.table);
+  }
+  // 動きの番号は 1 始まり（表の先頭は個数）
+  start(idx){
+    const m=this.m, ptr=U32(this.table+m.r32(this.table+4*idx));
+    // 番号→動きの位置を引く処理(0x80048a40)は、選んだ動きの位置を返すだけの4命令に置き換えたままにする
+    m.w32(EMU.SELECT,0x3c020000|(ptr>>>16)); m.w32(EMU.SELECT+4,0x34420000|(ptr&0xffff)); m.w32(EMU.SELECT+8,0x03e00008); m.w32(EMU.SELECT+12,0);
+    m.call(EMU.START,[EMU.P1,EMU.ST1,idx]);
+    m.w32(EMU.ST1+0x4c,ptr);
+    this.frames=m.r8(ptr); return this.frames;
+  }
+  frame(f){
+    const m=this.m, P=EMU.P1;
+    for(let i=0;i<12;i++){ m.w8(P+8+i,0); m.w8(P+0x2e8+i,0) }
+    m.w8(P+0x1a,f); m.w8(P+0x1b,f+1); m.w8(P+0x76,this.frames);
+    m.call(EMU.UPDATE,[P]);
+    const out={};
+    for(const k of [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,30,31]){
+      const b=P+0x2f4+k*32, R=[];
+      for(let i=0;i<9;i++) R.push(S16(m.r16(b+2*i))/4096);
+      out[k]={R,T:[m.r32(b+0x14)|0,m.r32(b+0x18)|0,m.r32(b+0x1c)|0]};
+    }
+    return out;
+  }
+}
+
+// ============================================================
 //  WebGL
 // ============================================================
 const canvas=document.getElementById("gl");
@@ -493,7 +681,7 @@ const vramTex=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,vramTex);
 for(const [k,v] of [[gl.TEXTURE_MIN_FILTER,gl.NEAREST],[gl.TEXTURE_MAG_FILTER,gl.NEAREST],[gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE],[gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D,k,v);
 let triCount=0, center=[0,0,0], radius=1000;
 const view={yaw:0,pitch:0.08,dist:1};
-function upload(mesh){
+function upload(mesh,fit=true){
   const P=mesh.pos, N=new Float32Array(P.length);
   let mn=[1e9,1e9,1e9], mx=[-1e9,-1e9,-1e9];
   for(let i=0;i<P.length;i+=9){
@@ -501,9 +689,9 @@ function upload(mesh){
     let nx=ay*bz-az*by,ny=az*bx-ax*bz,nz=ax*by-ay*bx; const l=Math.hypot(nx,ny,nz)||1; nx/=l;ny/=l;nz/=l;
     for(let k=0;k<3;k++){N[i+k*3]=nx;N[i+k*3+1]=ny;N[i+k*3+2]=nz; for(let a=0;a<3;a++){mn[a]=Math.min(mn[a],P[i+k*3+a]);mx[a]=Math.max(mx[a],P[i+k*3+a])}}
   }
-  center=mn.map((v,a)=>(v+mx[a])/2); radius=Math.hypot(mx[0]-mn[0],mx[1]-mn[1],mx[2]-mn[2])/2;
-  gl.bindTexture(gl.TEXTURE_2D,vramTex); gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,1024,512,0,gl.RGBA,gl.UNSIGNED_BYTE,mesh.vram);
-  for(const [k,data] of [["p",P],["n",N],["c",mesh.col],["t0",mesh.t0],["t1",mesh.t1]]){gl.bindBuffer(gl.ARRAY_BUFFER,bufs[k]);gl.bufferData(gl.ARRAY_BUFFER,data,gl.STATIC_DRAW)}
+  if(fit){ center=mn.map((v,a)=>(v+mx[a])/2); radius=Math.hypot(mx[0]-mn[0],mx[1]-mn[1],mx[2]-mn[2])/2 }
+  if(mesh.vram){ gl.bindTexture(gl.TEXTURE_2D,vramTex); gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,1024,512,0,gl.RGBA,gl.UNSIGNED_BYTE,mesh.vram) }
+  for(const [k,data] of [["p",P],["n",N],["c",mesh.col],["t0",mesh.t0],["t1",mesh.t1]]){gl.bindBuffer(gl.ARRAY_BUFFER,bufs[k]);gl.bufferData(gl.ARRAY_BUFFER,data,gl.DYNAMIC_DRAW)}
   triCount=P.length/3;
 }
 function persp(f,a,n,fa){const t=1/Math.tan(f/2);return[t/a,0,0,0, 0,t,0,0, 0,0,(fa+n)/(n-fa),-1, 0,0,2*fa*n/(n-fa),0]}
@@ -556,18 +744,87 @@ async function loadModel(fid){
   const e=state.table[fid], raw=await state.src.readAllbin(e.sector,e.size);
   const out=decompress(unpack(raw)[0]);
   const blk=new Uint8Array(out.length+8); blk.set(out,8); new DataView(blk.buffer).setUint32(0,out.length+8,true);
-  const mesh=buildMesh(blk); mesh.vram=buildVram(unpack(raw)[2]); state.cache.set(fid,mesh); return mesh;
+  const model={blk,bones:bonesFromBlock(blk),vram:buildVram(unpack(raw)[2])};
+  model.rest=buildMesh(blk); model.rest.vram=model.vram;
+  state.cache.set(fid,model); return model;
 }
+async function loadRaw(fid){
+  const key="raw"+fid; if(state.cache.has(key)) return state.cache.get(key);
+  const e=state.table[fid], raw=await state.src.readAllbin(e.sector,e.size); state.cache.set(key,raw); return raw;
+}
+// 動き: 0 = 立ち姿、1〜 = モーションファイルの番号
+const anim={idx:0,frame:0,frames:0,playing:true,player:null,model:null,last:0,acc:0,fid:0};
 async function show(){
   const c=CHARACTERS[state.char], fid=(state.side==="1P"?c[1]:c[2])[state.lod];
-  $("status").textContent=`${c[0]}  ${state.side}  ${["クエスト","対戦","勝利"][state.lod]}用`;
-  try{ upload(await loadModel(fid)); draw() }catch(err){ $("status").textContent="表示できませんでした: "+err.message; console.error(err) }
+  try{
+    const model=await loadModel(fid);
+    anim.model=model;
+    if(anim.fid!==c[3]||!anim.player||anim.playerModel!==model){
+      const mraw=await loadRaw(c[3]);
+      anim.player=new MotionPlayer(state.src.exe,mraw,model.bones); anim.playerModel=model; anim.fid=c[3];
+      fillMotionList(anim.player.count);
+      anim.idx=Math.min(anim.idx,anim.player.count);
+      if(anim.idx) startMotion(anim.idx);
+    }
+    upload(model.rest);
+    if(anim.idx) renderFrame();
+    draw(); updateStatus();
+  }catch(err){ $("status").textContent="表示できませんでした: "+err.message; console.error(err) }
 }
+function updateStatus(){
+  const c=CHARACTERS[state.char];
+  $("status").textContent=`${c[0]}  ${state.side}  ${["クエスト","対戦","勝利"][state.lod]}用`+(anim.idx?`  動き ${anim.idx}  ${anim.frame+1}/${anim.frames}`:"");
+}
+function fillMotionList(n){
+  const sel=$("motion"), keep=sel.value;
+  sel.innerHTML='<option value="0">立ち姿</option>'+Array.from({length:n},(_,i)=>`<option value="${i+1}">動き ${i+1}</option>`).join("");
+  sel.value=keep&&+keep<=n?keep:"0";
+}
+function startMotion(idx){
+  anim.idx=idx; anim.frame=0; anim.acc=0;
+  if(!idx){ $("motion-ctl").hidden=true; return }
+  try{ anim.frames=anim.player.start(idx) }catch(err){ anim.idx=0; $("status").textContent="この動きは再生できませんでした: "+err.message; return }
+  $("motion-ctl").hidden=false; $("scrub").max=Math.max(0,anim.frames-1); $("scrub").value=0;
+}
+function renderFrame(){
+  if(!anim.idx||!anim.model) return;
+  try{
+    const S=anim.player.frame(anim.frame), W={};
+    // 腰の水平位置は毎フレーム原点に戻す（その場で動く）
+    const ox=S[1].T[0], oz=S[1].T[2];
+    // ゲーム内の向き 0 は立ち姿と 90° ずれているので、Y 軸まわりに回して正面を合わせる
+    const Y=[0,0,-1,0,1,0,1,0,0];
+    for(const k in S){ const T=[S[k].T[0]-ox,S[k].T[1],S[k].T[2]-oz]; W[k]={R:mat(Y,S[k].R),T:apply(Y,T)} }
+    const mesh=buildMesh(anim.model.blk,finishSlots(W,anim.model.bones));
+    upload(mesh,false);
+  }catch(err){ anim.playing=false; $("status").textContent="この動きは再生できませんでした: "+err.message; console.error(err); return }
+  $("scrub").value=anim.frame; updateStatus();
+}
+function tick(t){
+  requestAnimationFrame(tick);
+  const dt=Math.min(100,t-(anim.last||t)); anim.last=t;
+  if(!anim.idx||!anim.playing||!anim.frames) return;
+  anim.acc+=dt; const step=1000/60;
+  if(anim.acc<step) return;
+  const adv=Math.floor(anim.acc/step); anim.acc-=adv*step;
+  let f=anim.frame+adv;
+  if(f>=anim.frames){ startMotion(anim.idx); f=0 }   // 最後まで行ったら頭から
+  else for(let k=anim.frame+1;k<f;k++) anim.player.frame(k);   // 飛ばしたフレームも順に計算する
+  anim.frame=f; renderFrame(); draw();
+}
+requestAnimationFrame(tick);
 function setPressed(group,btn){for(const b of group.querySelectorAll("button")) b.setAttribute("aria-pressed",String(b===btn))}
 CHARACTERS.forEach((c,i)=>{const b=document.createElement("button");b.textContent=c[0];b.setAttribute("aria-pressed",String(i===0));
   b.onclick=()=>{state.char=i;setPressed($("chars"),b);show()}; $("chars").append(b)});
 $("side-seg").onclick=e=>{const b=e.target.closest("button");if(!b)return;state.side=b.dataset.v;setPressed($("side-seg"),b);show()};
 $("lod-seg").onclick=e=>{const b=e.target.closest("button");if(!b)return;state.lod=+b.dataset.v;setPressed($("lod-seg"),b);show()};
+$("motion").onchange=e=>{ startMotion(+e.target.value); anim.playing=true; $("play").textContent="一時停止"; if(anim.idx) renderFrame(); else upload(anim.model.rest,false); draw(); updateStatus() };
+$("play").onclick=()=>{ anim.playing=!anim.playing; $("play").textContent=anim.playing?"一時停止":"再生" };
+$("scrub").oninput=e=>{
+  const f=+e.target.value; anim.playing=false; $("play").textContent="再生";
+  if(f<anim.frame){ startMotion(anim.idx); for(let k=0;k<f;k++) anim.player.frame(k) } else for(let k=anim.frame+1;k<f;k++) anim.player.frame(k);
+  anim.frame=f; renderFrame(); draw();
+};
 async function start(files){
   $("err").textContent="";
   try{
