@@ -35,6 +35,10 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .stage{position:relative;background:radial-gradient(ellipse at 50% 35%,var(--stage2),var(--stage));min-height:0}
 canvas{width:100%;height:100%;display:block;touch-action:none;cursor:grab}
 canvas:active{cursor:grabbing}
+.shot{position:absolute;right:12px;top:12px;display:flex;gap:10px;align-items:center;color:rgba(255,255,255,.75);font-size:12px}
+.shot label{display:flex;gap:4px;align-items:center;cursor:pointer}
+.shot button{all:unset;cursor:pointer;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.25);color:#fff;border-radius:6px;padding:6px 10px;font-size:12px}
+.shot button:hover{background:rgba(255,255,255,.24)}
 .hint{position:absolute;right:14px;bottom:12px;color:rgba(255,255,255,.55);font-size:12px;pointer-events:none}
 .status{position:absolute;left:14px;bottom:12px;color:rgba(255,255,255,.75);font-size:12px}
 .drop{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:24px}
@@ -56,7 +60,7 @@ canvas:active{cursor:grabbing}
 </style>
 </head>
 <body>
-<header><h1>トバル2 モデルビューア</h1><span class="sub">手元のディスクイメージからキャラクターを取り出して表示します</span><span class="rev">v1.4.0 ・ 非公式</span></header>
+<header><h1>トバル2 モデルビューア</h1><span class="sub">手元のディスクイメージからキャラクターを取り出して表示します</span><span class="rev">v1.5.0 ・ 非公式</span></header>
 <main>
   <aside id="side" hidden>
     <div><p class="label">キャラクター</p><div class="chars" id="chars"></div></div>
@@ -75,6 +79,10 @@ canvas:active{cursor:grabbing}
   </aside>
   <section class="stage">
     <canvas id="gl"></canvas>
+    <div class="shot" id="shot-box" hidden>
+      <label><input type="checkbox" id="shot-clear"> 背景なし</label>
+      <button id="shot">スクショを保存</button>
+    </div>
     <div class="status" id="status"></div>
     <div class="hint" id="hint" hidden>ドラッグで回転 ・ 右ドラッグ／Shift＋ドラッグで移動 ・ ホイールで拡大 ・ ダブルクリックで元に戻す</div>
     <div class="drop" id="drop">
@@ -671,7 +679,7 @@ class MotionPlayer{
 //  WebGL
 // ============================================================
 const canvas=document.getElementById("gl");
-const gl=canvas.getContext("webgl",{antialias:true});
+const gl=canvas.getContext("webgl",{antialias:true,preserveDrawingBuffer:true});
 const VS=`attribute vec3 p;attribute vec3 n;attribute vec3 c;attribute vec3 t0;attribute vec4 t1;uniform mat4 mvp;uniform mat4 model;
 varying vec3 vc;varying vec3 vn;varying vec3 vt0;varying vec4 vt1;
 void main(){gl_Position=mvp*vec4(p,1.);vc=c;vn=mat3(model)*n;vt0=t0;vt1=t1;}`;
@@ -896,10 +904,25 @@ async function start(files){
   $("err").textContent="";
   try{
     state.src=await openSource(files); state.table=readFileTable(state.src.exe);
-    $("drop").hidden=true; $("side").hidden=false; $("hint").hidden=false;
+    $("drop").hidden=true; $("side").hidden=false; $("hint").hidden=false; $("shot-box").hidden=false;
     await show();
   }catch(err){ $("err").textContent=err.message; console.error(err) }
 }
+// スクショ: 描いた直後のキャンバスを PNG にして保存する（背景は画面と同じ色、または透明）
+$("shot").onclick=()=>{
+  draw();
+  const out=document.createElement("canvas"); out.width=canvas.width; out.height=canvas.height;
+  const g=out.getContext("2d");
+  if(!$("shot-clear").checked){
+    const st=getComputedStyle(document.documentElement), grd=g.createRadialGradient(out.width/2,out.height*.35,0,out.width/2,out.height*.35,Math.max(out.width,out.height)*.7);
+    grd.addColorStop(0,st.getPropertyValue("--stage2").trim()||"#3a3834"); grd.addColorStop(1,st.getPropertyValue("--stage").trim()||"#2a2926");
+    g.fillStyle=grd; g.fillRect(0,0,out.width,out.height);
+  }
+  g.drawImage(canvas,0,0);
+  const c=CHARACTERS[state.char], mv=anim.idx?`_${((MOVE_NAMES[c[0]]||{})[anim.idx]||"動き"+anim.idx)}_${anim.frame+1}`:"";
+  const name=`tobal2_${c[0]}_${state.side}_${["クエスト","対戦","勝利"][state.lod]}${mv}.png`.replace(/[\\/:*?"<>|\s]/g,"_");
+  out.toBlob(b=>{ const a=document.createElement("a"); a.href=URL.createObjectURL(b); a.download=name; document.body.append(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),2000) },"image/png");
+};
 $("file").onchange=e=>start(e.target.files);
 const drop=$("drop");
 for(const t of ["dragenter","dragover"]) document.addEventListener(t,e=>{e.preventDefault();drop.classList.add("over")});
