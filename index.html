@@ -49,7 +49,7 @@ canvas:active{cursor:grabbing}
 </style>
 </head>
 <body>
-<header><h1>トバル2 モデルビューア</h1><span class="sub">手元のディスクイメージからキャラクターを取り出して表示します</span><span class="rev">v1.0.1 ・ 非公式</span></header>
+<header><h1>トバル2 モデルビューア</h1><span class="sub">手元のディスクイメージからキャラクターを取り出して表示します</span><span class="rev">v1.0.2 ・ 非公式</span></header>
 <main>
   <aside id="side" hidden>
     <div><p class="label">キャラクター</p><div class="chars" id="chars"></div></div>
@@ -431,7 +431,7 @@ function buildMesh(blk){
         const v=[dv.getInt16(vp+k*8,true),dv.getInt16(vp+k*8+2,true),dv.getInt16(vp+k*8+4,true)];
         const r=apply(cur.R,v);
         if(c===2){slotcol[s0+k]=[blk[cp],blk[cp+1],blk[cp+2]]; cp+=4}
-        slot[s0+k]=verts.length; verts.push([r[0]+cur.T[0],r[1]+cur.T[1],-(r[2]+cur.T[2])]); vcol.push(slotcol[s0+k]||null);  // Y を上にした分、Z も反転して鏡像を戻す
+        slot[s0+k]=verts.length; verts.push([r[0]+cur.T[0],r[1]+cur.T[1],r[2]+cur.T[2]]); vcol.push(slotcol[s0+k]||null);  // 座標はそのまま使う（ベルトの文字が正しく読める向き）
       }
       vp+=n*8;
     } else if(PRIM[c]){
