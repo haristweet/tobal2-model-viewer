@@ -54,7 +54,7 @@ canvas:active{cursor:grabbing}
 </style>
 </head>
 <body>
-<header><h1>トバル2 モデルビューア</h1><span class="sub">手元のディスクイメージからキャラクターを取り出して表示します</span><span class="rev">v1.2.0 ・ 非公式</span></header>
+<header><h1>トバル2 モデルビューア</h1><span class="sub">手元のディスクイメージからキャラクターを取り出して表示します</span><span class="rev">v1.2.1 ・ 非公式</span></header>
 <main>
   <aside id="side" hidden>
     <div><p class="label">キャラクター</p><div class="chars" id="chars"></div></div>
@@ -677,7 +677,7 @@ void main(){
   vec3 N=normalize(vn);vec3 L1=normalize(vec3(.4,.8,.6));vec3 L2=normalize(vec3(-.6,.2,-.5));
   float d=abs(dot(N,L1))*.75+abs(dot(N,L2))*.25;
   float mode=floor(vt0.z+.5);vec3 base;
-  if(mode<1.){base=vc*1.45;}
+  if(mode<1.){base=vc;}
   else{
     float u=floor(vt0.x),v=floor(vt0.y);vec4 t=floor(vt1+.5);float w;
     if(mode<5.){float m=mod(u,4.);w=word(vec2(t.x+floor(u/4.),t.y+v));w=mod(floor(w/(m<.5?1.:m<1.5?16.:m<2.5?256.:4096.)),16.);w=word(vec2(t.z+w,t.w));}
@@ -685,9 +685,9 @@ void main(){
     else{w=word(vec2(t.x+u,t.y+v));}
     if(w<.5)discard;
     vec3 tex=vec3(mod(w,32.),mod(floor(w/32.),32.),mod(floor(w/1024.),32.))/31.;
-    base=tex*vc*(255./128.);
+    base=tex*vc*(255./128.);   // テクスチャ × 頂点色/128（PS1 と同じ）。頂点色だけの面と明るさの基準を揃える
   }
-  gl_FragColor=vec4(min(base*(.4+.75*d),vec3(1.)),1.);
+  gl_FragColor=vec4(min(base*(.55+.6*d),vec3(1.)),1.);
 }`;
 function sh(t,s){const o=gl.createShader(t);gl.shaderSource(o,s);gl.compileShader(o);if(!gl.getShaderParameter(o,gl.COMPILE_STATUS))throw gl.getShaderInfoLog(o);return o}
 const prog=gl.createProgram(); gl.attachShader(prog,sh(gl.VERTEX_SHADER,VS)); gl.attachShader(prog,sh(gl.FRAGMENT_SHADER,FS)); gl.linkProgram(prog); gl.useProgram(prog);
