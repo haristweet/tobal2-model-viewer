@@ -122,7 +122,7 @@ canvas:active{cursor:grabbing}
 </style>
 </head>
 <body>
-<header><h1>トバル2 モデルビューア</h1><span class="sub">手元のディスクイメージからキャラクターを取り出して表示します</span><span class="rev">v2.0.0 ・ 非公式</span></header>
+<header><h1>トバル2 モデルビューア</h1><span class="sub">手元のディスクイメージからキャラクターを取り出して表示します</span><span class="rev">v2.1.0 ・ 非公式</span></header>
 <main>
   <aside id="side" hidden>
     <div class="sheet-close" aria-hidden="true"></div>
@@ -150,6 +150,7 @@ canvas:active{cursor:grabbing}
     <canvas id="gl"></canvas>
     <div class="bgs" id="bg-box" hidden aria-label="背景の色"></div>
     <div class="shot" id="shot-box" hidden>
+      <label id="gouraud-opt"><input type="checkbox" id="gouraud"> なめらかな陰影</label>
       <label><input type="checkbox" id="shot-clear"> 背景なし</label>
       <button id="shot">スクショを保存</button>
     </div>
@@ -603,7 +604,7 @@ function buildMesh(blk,W){
   const jointMat=j=>{const s=DLMAP[j]; return (s!==undefined&&W[s])||W[42]};
   const PRIM={24:[3,8,1],25:[4,8,1],28:[3,20,1],29:[4,20,1],32:[3,4,0],33:[4,4,0],34:[3,16,0],35:[4,16,0]};
   let vp=h(5)+16, fp=h(4)+16, cp=h(7)+16, cur=W[42];
-  const verts=[], vcol=[], slot={}, slotcol={}, pos=[], col=[], t0=[], t1=[];
+  const verts=[], vcol=[], slot={}, slotcol={}, pos=[], col=[], t0=[], t1=[], sm=[];
   const TEXTURED={28:1,29:1,34:1,35:1};
   for(const [c,a] of walk(blk)){
     if(c===-3) cur=jointMat(a[0]);
@@ -635,12 +636,13 @@ function buildMesh(blk,W){
         const vi=idx.map(i=>slot[i]);
         const tris=nv===3?[[0,1,2]]:[[0,1,3],[1,2,3]];   // 四角形はデータの輪の順。GPU へは 0,1,3,2 で送られる
         if(!fc){ const cs=vi.map(v=>vcol[v]).filter(Boolean); if(cs.length) fc=[0,1,2].map(ch=>cs.reduce((t,x)=>t+x[ch],0)/cs.length) }
+        for(let q=0;q<tris.length;q++) sm.push(flat?0:1);
         for(const t of tris) for(const k of t){ pos.push(...verts[vi[k]]); col.push(...(flat?fc:vcol[vi[k]]||fc||[128,128,128]));
           if(uvs){ t0.push(uvs[k][0],uvs[k][1],tp[0]); t1.push(tp[1],tp[2],tp[3],tp[4]) } else { t0.push(0,0,0); t1.push(0,0,0,0) } }
       }
     }
   }
-  return {pos:new Float32Array(pos), col:new Float32Array(col.map(x=>x/255)), t0:new Float32Array(t0), t1:new Float32Array(t1)};
+  return {pos:new Float32Array(pos), col:new Float32Array(col.map(x=>x/255)), t0:new Float32Array(t0), t1:new Float32Array(t1), sm:new Uint8Array(sm)};
 }
 
 // ============================================================
@@ -849,6 +851,8 @@ for(const [k,v] of [[gl.TEXTURE_MIN_FILTER,gl.NEAREST],[gl.TEXTURE_MAG_FILTER,gl
 let triCount=0, center=[0,0,0], radius=1000;
 const view={yaw:0,pitch:0.08,dist:1,pan:[0,0,0]};
 const cam={s:[1,0,0],u:[0,1,0],half:1};   // 描画時のカメラの右・上方向と、注視点の面での画面の半分の高さ
+const shading={gouraud:false};
+try{ shading.gouraud=localStorage.getItem("t2gouraud")==="1" }catch(_){}
 function upload(mesh,fit=true){
   const P=mesh.pos, N=new Float32Array(P.length);
   let mn=[1e9,1e9,1e9], mx=[-1e9,-1e9,-1e9];
@@ -856,6 +860,14 @@ function upload(mesh,fit=true){
     const ax=P[i+3]-P[i],ay=P[i+4]-P[i+1],az=P[i+5]-P[i+2],bx=P[i+6]-P[i],by=P[i+7]-P[i+1],bz=P[i+8]-P[i+2];
     let nx=ay*bz-az*by,ny=az*bx-ax*bz,nz=ax*by-ay*bx; const l=Math.hypot(nx,ny,nz)||1; nx/=l;ny/=l;nz/=l;
     for(let k=0;k<3;k++){N[i+k*3]=nx;N[i+k*3+1]=ny;N[i+k*3+2]=nz; for(let a=0;a<3;a++){mn[a]=Math.min(mn[a],P[i+k*3+a]);mx[a]=Math.max(mx[a],P[i+k*3+a])}}
+  }
+  if(shading.gouraud&&mesh.sm){
+    const acc=new Map(), key=i=>Math.round(P[i])+","+Math.round(P[i+1])+","+Math.round(P[i+2]);
+    for(let t=0,i=0;i<P.length;t++,i+=9){ if(!mesh.sm[t]) continue;
+      for(let k=0;k<3;k++){ const kk=key(i+k*3); let a=acc.get(kk); if(!a){a=[0,0,0];acc.set(kk,a)}
+        const s=(a[0]*N[i]+a[1]*N[i+1]+a[2]*N[i+2])<0?-1:1; a[0]+=s*N[i]; a[1]+=s*N[i+1]; a[2]+=s*N[i+2] } }
+    for(let t=0,i=0;i<P.length;t++,i+=9){ if(!mesh.sm[t]) continue;
+      for(let k=0;k<3;k++){ const a=acc.get(key(i+k*3)), l=Math.hypot(a[0],a[1],a[2])||1; N[i+k*3]=a[0]/l; N[i+k*3+1]=a[1]/l; N[i+k*3+2]=a[2]/l } }
   }
   if(fit){ center=mn.map((v,a)=>(v+mx[a])/2); radius=Math.hypot(mx[0]-mn[0],mx[1]-mn[1],mx[2]-mn[2])/2; view.pan=[0,0,0] }
   if(mesh.vram){ gl.bindTexture(gl.TEXTURE_2D,vramTex); gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,1024,512,0,gl.RGBA,gl.UNSIGNED_BYTE,mesh.vram) }
@@ -1133,11 +1145,11 @@ BG_PRESETS.forEach((p,i)=>{ const b=document.createElement("button"); b.title=p.
 (()=>{ let i=0; try{ i=+localStorage.getItem("t2bg")||0 }catch(_){} setBackground(i) })();
 // スマホ用の配置: 背景の丸と「背景なし」をシートへ、再生バーを表示の上へ
 const mobileMQ=matchMedia("(max-width:720px)");
-const shotOpt=$("shot-clear").closest("label");
+const shotOpt=$("shot-clear").closest("label"), gouraudOpt=$("gouraud-opt");
 function applyLayout(){
   const m=mobileMQ.matches, stage=document.querySelector(".stage"), moveSec=$("motion").parentElement;
-  if(m){ $("look-bg").append($("bg-box")); $("look-bg").append(shotOpt); shotOpt.className="shot-opt"; stage.append($("motion-ctl")); $("bg-box").hidden=false }
-  else { stage.insertBefore($("bg-box"),$("shot-box")); $("shot-box").prepend(shotOpt); shotOpt.className=""; moveSec.append($("motion-ctl")); closeSheet() }
+  if(m){ $("look-bg").append($("bg-box")); $("look-bg").append(gouraudOpt); $("look-bg").append(shotOpt); shotOpt.className=gouraudOpt.className="shot-opt"; stage.append($("motion-ctl")); $("bg-box").hidden=false }
+  else { stage.insertBefore($("bg-box"),$("shot-box")); $("shot-box").prepend(shotOpt); $("shot-box").prepend(gouraudOpt); shotOpt.className=gouraudOpt.className=""; moveSec.append($("motion-ctl")); closeSheet() }
   requestAnimationFrame(draw);
 }
 function openTab(t){
@@ -1151,6 +1163,13 @@ $("tabbar").onclick=e=>{ const b=e.target.closest("button"); if(b) openTab(b.dat
 canvas.addEventListener("pointerdown",()=>{ if(mobileMQ.matches) closeSheet() });
 mobileMQ.addEventListener("change",applyLayout);
 applyLayout();
+$("gouraud").checked=shading.gouraud;
+$("gouraud").onchange=e=>{
+  shading.gouraud=e.target.checked; try{ localStorage.setItem("t2gouraud",shading.gouraud?"1":"0") }catch(_){}
+  if(!anim.model) return;
+  if(anim.idx) renderFrame(); else upload(anim.model.rest,false);
+  draw();
+};
 $("bgm").onchange=e=>bgmPlay(+e.target.value);
 $("bgm-vol").oninput=e=>{ bgm.volume=+e.target.value; if(bgm.gain) bgm.gain.gain.value=bgm.volume };
 $("shot").onclick=()=>{
