@@ -32,6 +32,8 @@ aside{background:var(--panel);border-right:1px solid var(--line);padding:14px 12
 button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .stage{position:relative;background:radial-gradient(ellipse at 50% 35%,var(--stage2),var(--stage));min-height:0}
 canvas{width:100%;height:100%;display:block;touch-action:none;cursor:grab}
+/* ボタンの連打でダブルタップ拡大が起きないように（iPhone） */
+html,body,button,input,select,label,.motion-ctl,.tabbar,aside{touch-action:manipulation}
 canvas:active{cursor:grabbing}
 .bgs{position:absolute;left:12px;top:12px;display:flex;gap:6px;align-items:center}
 .bgs button{all:unset;cursor:pointer;width:22px;height:22px;border-radius:50%;border:2px solid rgba(255,255,255,.55);box-shadow:0 0 0 1px rgba(0,0,0,.25)}
@@ -122,7 +124,7 @@ canvas:active{cursor:grabbing}
 </style>
 </head>
 <body>
-<header><h1>トバル2 モデルビューア</h1><span class="sub">手元のディスクイメージからキャラクターを取り出して表示します</span><span class="rev">v2.2.1 ・ 非公式</span></header>
+<header><h1>トバル2 モデルビューア</h1><span class="sub">手元のディスクイメージからキャラクターを取り出して表示します</span><span class="rev">v2.2.2 ・ 非公式</span></header>
 <main>
   <aside id="side" hidden>
     <div class="sheet-close" aria-hidden="true"></div>
