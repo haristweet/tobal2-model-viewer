@@ -124,7 +124,7 @@ canvas:active{cursor:grabbing}
 </style>
 </head>
 <body>
-<header><h1>トバル2 モデルビューア</h1><span class="sub">手元のディスクイメージからキャラクターを取り出して表示します</span><span class="rev">v2.2.2 ・ 非公式</span></header>
+<header><h1>トバル2 モデルビューア</h1><span class="sub">手元のディスクイメージからキャラクターを取り出して表示します</span><span class="rev">v2.2.3 ・ 非公式</span></header>
 <main>
   <aside id="side" hidden>
     <div class="sheet-close" aria-hidden="true"></div>
@@ -594,7 +594,7 @@ function pose(bones,local=REST_LOCAL){
 function finishSlots(W,bones){
   if(!W[41]) W[41]={R:mat(W[10].R,RZ180),T:W[10].T};
   if(!W[42]) W[42]={R:mat(W[11].R,FIXED[42]),T:W[11].T};
-  for(const [m,[a,b]] of Object.entries(MID)) W[m]={R:ortho(W[a].R.map((v,i)=>(v+W[b].R[i])/2)),T:W[b].T};
+  for(const [m,[a,b]] of Object.entries(MID)) if(!W[m]) W[m]={R:ortho(W[a].R.map((v,i)=>(v+W[b].R[i])/2)),T:W[b].T};
   // 眼球（勝利モデルだけ骨の表の 36・37 に位置が入る）。首の枠からの位置で、向きは首と同じ
   for(const [s,bi] of [[80,36],[81,37]]){
     const b=bones[bi]; if(!b||b[0]===-25600) continue;
@@ -821,8 +821,15 @@ class MotionPlayer{
     for(let i=0;i<12;i++){ m.w8(P+8+i,0); m.w8(P+0x2e8+i,0) }
     m.w8(P+0x1a,f); m.w8(P+0x1b,f+1); m.w8(P+0x76,this.frames);
     m.call(EMU.UPDATE,[P]);
+    // 胸・頭（41・42）と、関節をまたぐ中間の枠はゲームの階層処理(0x800714b8)で作られる。階層処理はカメラ変換まで含むので、
+    // 中間の枠を作る部分(0x8002a2c0: 親子の行列の上2行を足して正規直交化、0x8002a208: 成分ごとの平均)だけを同じ親子で呼ぶ
+    const at=k=>P+0x2f4+k*32, rot=(k,R)=>{ for(let i=0;i<9;i++) m.w16(at(k)+2*i,R[i]) }, raw=k=>Array.from({length:9},(_,i)=>S16(m.r16(at(k)+2*i)));
+    const mul=(A,B)=>{ const C=[]; for(let r=0;r<3;r++) for(let c=0;c<3;c++) C.push(A[r*3]*B[c]+A[r*3+1]*B[3+c]+A[r*3+2]*B[6+c]); return C };
+    for(const [k,src,F] of [[41,10,RZ180],[42,11,FIXED[42]]]){ rot(k,mul(raw(src),F)); for(const o of [0x14,0x18,0x1c]) m.w32(at(k)+o,m.r32(at(src)+o)) }
+    for(const [k,a,b,fn] of [[47,1,2],[48,1,6],[49,41,12],[50,41,15],[52,2,3],[53,6,7],[58,12,13],[59,15,16],[62,1,41],[63,41,42],[56,4,5,0x8002a208],[57,8,9,0x8002a208]])
+      m.call(fn||0x8002a2c0,[at(a),at(b),at(k)]);
     const out={};
-    for(const k of [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,30,31]){
+    for(const k of [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,30,31,41,42,47,48,49,50,52,53,56,57,58,59,62,63]){
       const b=P+0x2f4+k*32, R=[];
       for(let i=0;i<9;i++) R.push(S16(m.r16(b+2*i))/4096);
       out[k]={R,T:[m.r32(b+0x14)|0,m.r32(b+0x18)|0,m.r32(b+0x1c)|0]};
