@@ -124,7 +124,7 @@ canvas:active{cursor:grabbing}
 </style>
 </head>
 <body>
-<header><h1>トバル2 モデルビューア</h1><span class="sub">手元のディスクイメージからキャラクターを取り出して表示します</span><span class="rev">v2.2.3 ・ 非公式</span></header>
+<header><h1>トバル2 モデルビューア</h1><span class="sub">手元のディスクイメージからキャラクターを取り出して表示します</span><span class="rev">v2.3.0 ・ 非公式</span></header>
 <main>
   <aside id="side" hidden>
     <div class="sheet-close" aria-hidden="true"></div>
@@ -187,6 +187,8 @@ const CHARACTERS = [
   ["ホム",[30,31,32],[33,34,35],619], ["フェイ",[36,37,38],[39,40,41],620], ["マリー",[42,43,44],[45,46,47],621],
   ["イール",[48,49,50],[51,52,53],622], ["ドクターV",[72,73,74],[75,76,77],623], ["チャコ",[78,79,80],[81,82,83],624],
   ["グリン",[84,85,86],[87,88,89],627],
+  // TRIX（鳥山ロボ）: モンスター。モデルは1種類ずつで、1P 側が TRIX、2P 側が SUPER TRIX（キャラ番号 155/156、動きは同じ 816）
+  ["TRIX",[241,241,241],[242,242,242],816,["TRIX","SUPER TRIX"]],
 ];
 // 技の名前（動きの番号 → 名前）。技のデータ（段・威力・ヒットタイミング・派生先）を技表と突き合わせて付けた
 const MOVE_NAMES={
@@ -1010,6 +1012,9 @@ function victoryFile(motionFid){
 }
 async function show(){
   const c=CHARACTERS[state.char], fid=(state.side==="1P"?c[1]:c[2])[state.lod];
+  $("lod-seg").parentElement.hidden=!!c[4];
+  $("named-only").parentElement.hidden=!Object.keys(MOVE_NAMES[c[0]]||{}).length;
+  $("side-seg").children[0].textContent=c[4]?c[4][0]:"1P"; $("side-seg").children[1].textContent=c[4]?c[4][1]:"2P";
   try{
     const model=await loadModel(fid);
     anim.model=model;
@@ -1025,6 +1030,9 @@ async function show(){
     draw(); updateStatus();
   }catch(err){ $("status").textContent="表示できませんでした: "+err.message; console.error(err) }
 }
+// 表示名（TRIX は 1P/2P で別のキャラ）と、モデルの種類（1種類しかないキャラは出さない）
+const charName=c=>c[4]?c[4][state.side==="1P"?0:1]:c[0];
+const lodLabel=c=>c[4]?"":`  ${["クエスト","対戦","勝利"][state.lod]}用`;
 function motionLabel(){
   const c=CHARACTERS[state.char];
   return anim.kind==="dance"?`ダンス ${anim.seqPos+1}/${anim.seq.length}`:anim.kind==="victory"?`勝利ポーズ ${anim.victNo}`:((MOVE_NAMES[c[0]]||{})[anim.idx]||(MOVE_DESC[c[0]]||{})[anim.idx]||"動き "+anim.idx);
@@ -1032,7 +1040,7 @@ function motionLabel(){
 function updateStatus(){
   const c=CHARACTERS[state.char];
   const label=motionLabel();
-  $("status").textContent=`${c[0]}  ${state.side}  ${["クエスト","対戦","勝利"][state.lod]}用`+(anim.idx?`  ${label}  ${anim.frame+1}/${anim.frames}`:"");
+  $("status").textContent=`${charName(c)}  ${state.side}${lodLabel(c)}`+(anim.idx?`  ${label}  ${anim.frame+1}/${anim.frames}`:"");
 }
 // 勝利用ファイルの中身: 先頭から続く 250 フレームの動きがダンス（隠し）の分割、残りが勝利ポーズ
 function victoryParts(){
@@ -1043,7 +1051,7 @@ function victoryParts(){
 }
 function fillMotionList(){
   const sel=$("motion"), keep=sel.value, n=anim.own?anim.own.count:0;
-  const names=MOVE_NAMES[CHARACTERS[state.char][0]]||{}, desc=MOVE_DESC[CHARACTERS[state.char][0]]||{}, only=$("named-only").checked, vp=victoryParts();
+  const names=MOVE_NAMES[CHARACTERS[state.char][0]]||{}, desc=MOVE_DESC[CHARACTERS[state.char][0]]||{}, only=$("named-only").checked&&Object.keys(names).length>0, vp=victoryParts();
   let h='<option value="0">立ち姿</option>';
   if(vp.poses.length||vp.dance.length){
     h+='<optgroup label="勝利">'+vp.poses.map((m,i)=>`<option value="v${m}">勝利ポーズ ${i+1}</option>`).join("")+(vp.dance.length?'<option value="d">ダンス（隠し）</option>':"")+'</optgroup>';
@@ -1208,7 +1216,7 @@ $("shot").onclick=()=>{
   }
   g.drawImage(canvas,0,0);
   const c=CHARACTERS[state.char], mv=anim.idx?`_${motionLabel().replace(/\s+/g,"")}_${anim.frame+1}`:"";
-  const name=`tobal2_${c[0]}_${state.side}_${["クエスト","対戦","勝利"][state.lod]}${mv}.png`.replace(/[\\/:*?"<>|\s]/g,"_");
+  const name=`tobal2_${charName(c)}_${state.side}${lodLabel(c).trim()?"_"+lodLabel(c).trim():""}${mv}.png`.replace(/[\\/:*?"<>|\s]/g,"_");
   out.toBlob(async b=>{
     const file=new File([b],name,{type:"image/png"});
     if(matchMedia("(pointer:coarse)").matches&&navigator.canShare&&navigator.canShare({files:[file]})){
