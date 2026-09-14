@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>トバル2 モデルビューア</title>
 <style>
 :root{
@@ -12,18 +12,16 @@
 }
 *{box-sizing:border-box}
 html,body{height:100%;margin:0}
+body{height:100dvh;overflow:hidden;overscroll-behavior:none}
 body{background:var(--ground);color:var(--ink);font-family:var(--sans);font-size:14px;display:flex;flex-direction:column}
 header{display:flex;align-items:baseline;gap:14px;padding:12px 18px;border-bottom:1px solid var(--line)}
 header h1{font-size:17px;margin:0;font-weight:700;letter-spacing:.02em}
 header .sub{color:var(--ink2);font-size:12px}
 header .rev{margin-left:auto;color:var(--ink2);font-size:11px;white-space:nowrap}
-@media(max-width:720px){header{flex-wrap:wrap}header .sub{display:none}}
 main{flex:1;display:grid;grid-template-columns:220px 1fr;min-height:0}
-@media(max-width:720px){main{grid-template-columns:1fr;grid-template-rows:auto minmax(0,1fr)}aside{grid-row:1}.stage{grid-row:2}}
 aside{background:var(--panel);border-right:1px solid var(--line);padding:14px 12px;overflow:auto;display:flex;flex-direction:column;gap:16px}
 .label{font-size:11px;letter-spacing:.1em;color:var(--ink2);font-weight:600;margin:0 0 6px 4px}
 .chars{display:flex;flex-direction:column;gap:2px}
-@media(max-width:720px){.chars{flex-direction:row;flex-wrap:wrap}}
 .chars button{all:unset;cursor:pointer;padding:7px 10px;border-radius:6px;font-size:14px}
 .chars button:hover{background:var(--accent-soft)}
 .chars button[aria-pressed=true]{background:var(--accent);color:#fff;font-weight:600}
@@ -57,10 +55,36 @@ canvas:active{cursor:grabbing}
 .step:hover{background:var(--accent-soft)}
 .play{all:unset;cursor:pointer;background:var(--ink);color:#fff;border-radius:6px;padding:5px 10px;font-size:12px;white-space:nowrap}
 .motion-ctl input{flex:1;min-width:0;accent-color:var(--accent)}
+/* スマホ: 表示を上に大きく、操作を下にまとめる */
+@media(max-width:720px){
+  header{padding:8px 12px calc(8px) max(12px,env(safe-area-inset-left))}
+  header h1{font-size:15px}
+  header .sub{display:none}
+  main{grid-template-columns:1fr;grid-template-rows:minmax(0,1fr) auto}
+  .stage{grid-row:1}
+  aside{grid-row:2;border-right:0;border-top:1px solid var(--line);max-height:44dvh;padding:10px 12px calc(10px + env(safe-area-inset-bottom));display:grid;grid-template-columns:auto 1fr;gap:10px 12px;align-items:start}
+  aside>div:nth-child(1),aside>div:nth-child(4){grid-column:1/-1}
+  .label{margin:0 0 4px 2px;font-size:10px}
+  .chars{flex-direction:row;flex-wrap:nowrap;overflow-x:auto;gap:4px;padding-bottom:2px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  .chars::-webkit-scrollbar{display:none}
+  .chars button{white-space:nowrap;padding:8px 12px;border:1px solid var(--line);background:#fff}
+  .seg button{padding:9px 10px;font-size:14px}
+  .pick-motion{font-size:16px;padding:8px}
+  .motion-ctl{gap:8px}
+  .step{padding:9px 13px;font-size:13px}
+  .play{padding:9px 14px;font-size:13px}
+  .named-only{font-size:13px}
+  .shot{top:8px;right:8px;gap:8px}
+  .shot button{padding:8px 10px}
+  .hint{left:12px;right:auto;bottom:8px;font-size:11px}
+  .status{left:12px;bottom:26px;font-size:11px}
+  .drop{padding:14px}
+  .drop .card{padding:20px}
+}
 </style>
 </head>
 <body>
-<header><h1>トバル2 モデルビューア</h1><span class="sub">手元のディスクイメージからキャラクターを取り出して表示します</span><span class="rev">v1.5.0 ・ 非公式</span></header>
+<header><h1>トバル2 モデルビューア</h1><span class="sub">手元のディスクイメージからキャラクターを取り出して表示します</span><span class="rev">v1.6.0 ・ 非公式</span></header>
 <main>
   <aside id="side" hidden>
     <div><p class="label">キャラクター</p><div class="chars" id="chars"></div></div>
@@ -88,7 +112,7 @@ canvas:active{cursor:grabbing}
     <div class="drop" id="drop">
       <div class="card">
         <h2>ディスクイメージを読み込んでください</h2>
-        <p>トバル2の <code>.chd</code> か <code>.bin</code> をここにドロップするか、下のボタンから選んでください。ディスクから取り出した <code>ALLBIN.BIN</code> と <code>SLPM_860.33</code> を2つまとめて選んでも読み込めます。</p>
+        <p>トバル2の <code>.chd</code> か <code>.bin</code> をここにドロップするか、下のボタンから選んでください（iPhone は「ファイル」アプリから選べます）。ディスクから取り出した <code>ALLBIN.BIN</code> と <code>SLPM_860.33</code> を2つまとめて選んでも読み込めます。</p>
         <p>データはこのブラウザの中だけで読み取り、どこにも送信しません。</p>
         <label class="pick">ファイルを選ぶ<input id="file" type="file" multiple hidden></label>
         <div class="err" id="err"></div>
@@ -253,6 +277,7 @@ function lzmaDecode(src,outLen,lc=3,lp=0,pb=2){
   return out;
 }
 async function inflateRaw(data){
+  if(typeof DecompressionStream==="undefined") throw new Error("このブラウザは CHD の展開に必要な機能に対応していません。iPhone は iOS 16.4 以降にしてください（.bin なら読めます）");
   const s=new Blob([data]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
   return new Uint8Array(await new Response(s).arrayBuffer());
 }
@@ -730,7 +755,7 @@ function draw(){
   if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h}
   gl.viewport(0,0,w,h); gl.clearColor(0,0,0,0); gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT); gl.enable(gl.DEPTH_TEST);
   if(!triCount) return;
-  const d=radius*2.9*view.dist, cy=Math.cos(view.pitch), tg=center.map((v,i)=>v+view.pan[i]);
+  const d=radius*2.9*view.dist*Math.max(1,0.8*h/w), cy=Math.cos(view.pitch), tg=center.map((v,i)=>v+view.pan[i]);   // 縦長の画面では引いて横幅も収める
   const eye=[tg[0]+d*cy*Math.cos(view.yaw),tg[1]+d*Math.sin(view.pitch),tg[2]+d*cy*Math.sin(view.yaw)];
   const f=tg.map((v,i)=>v-eye[i]); const fl=Math.hypot(...f); f.forEach((v,i)=>f[i]=v/fl);
   let s=[f[1]*0-f[2]*1,f[2]*0-f[0]*0,f[0]*1-f[1]*0]; const sl=Math.hypot(...s); s=s.map(v=>v/sl);
@@ -779,7 +804,21 @@ canvas.addEventListener("pointermove",e=>{
 });
 for(const t of ["pointerup","pointercancel"]) canvas.addEventListener(t,e=>{ pointers.delete(e.pointerId); if(pointers.size===0) dragMode=null; else if(dragMode==="pinch") dragMode="pan" });
 canvas.addEventListener("wheel",e=>{ e.preventDefault(); const r=canvas.getBoundingClientRect(); zoomAt(Math.exp(e.deltaY*(e.ctrlKey?0.01:0.001)),e.clientX-r.left,e.clientY-r.top); draw() },{passive:false});
-canvas.addEventListener("dblclick",()=>{view.yaw=0;view.pitch=0.08;view.dist=1;view.pan=[0,0,0];draw()});
+function resetView(){view.yaw=0;view.pitch=0.08;view.dist=1;view.pan=[0,0,0];draw()}
+canvas.addEventListener("dblclick",resetView);
+// ダブルタップで戻す（iPhone では dblclick が来ないため）
+let lastTap={t:0,x:0,y:0}, tapStart=null;
+canvas.addEventListener("pointerdown",e=>{ if(e.pointerType==="touch") tapStart={t:performance.now(),x:e.clientX,y:e.clientY,multi:pointers.size>1} },true);
+canvas.addEventListener("pointerup",e=>{
+  if(e.pointerType!=="touch"||!tapStart) return;
+  const now=performance.now(), moved=Math.hypot(e.clientX-tapStart.x,e.clientY-tapStart.y);
+  if(!tapStart.multi&&moved<10&&now-tapStart.t<250){
+    if(now-lastTap.t<350&&Math.hypot(e.clientX-lastTap.x,e.clientY-lastTap.y)<40){ resetView(); lastTap.t=0; }
+    else lastTap={t:now,x:e.clientX,y:e.clientY};
+  }
+  tapStart=null;
+});
+if(matchMedia("(pointer:coarse)").matches) document.getElementById("hint").textContent="1本指で回転 ・ 2本指で移動と拡大 ・ ダブルタップで戻す";
 addEventListener("resize",draw);
 
 // ============================================================
@@ -868,7 +907,8 @@ function tick(t){
   if(!anim.idx||!anim.playing||!anim.frames) return;
   anim.acc+=dt; const step=1000/60;
   if(anim.acc<step) return;
-  const adv=Math.floor(anim.acc/step); anim.acc-=adv*step;
+  let adv=Math.floor(anim.acc/step); anim.acc-=adv*step;
+  if(adv>4){ adv=4; anim.acc=0 }   // 端末が遅いときは遅れを溜めずに間引く
   let f=anim.frame+adv;
   if(f>=anim.frames){ startMotion(anim.idx); f=0 }   // 最後まで行ったら頭から
   else for(let k=anim.frame+1;k<f;k++) anim.player.frame(k);   // 飛ばしたフレームも順に計算する
@@ -921,7 +961,13 @@ $("shot").onclick=()=>{
   g.drawImage(canvas,0,0);
   const c=CHARACTERS[state.char], mv=anim.idx?`_${((MOVE_NAMES[c[0]]||{})[anim.idx]||"動き"+anim.idx)}_${anim.frame+1}`:"";
   const name=`tobal2_${c[0]}_${state.side}_${["クエスト","対戦","勝利"][state.lod]}${mv}.png`.replace(/[\\/:*?"<>|\s]/g,"_");
-  out.toBlob(b=>{ const a=document.createElement("a"); a.href=URL.createObjectURL(b); a.download=name; document.body.append(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),2000) },"image/png");
+  out.toBlob(async b=>{
+    const file=new File([b],name,{type:"image/png"});
+    if(matchMedia("(pointer:coarse)").matches&&navigator.canShare&&navigator.canShare({files:[file]})){
+      try{ await navigator.share({files:[file]}); return }catch(err){ if(err.name==="AbortError") return }
+    }
+    const a=document.createElement("a"); a.href=URL.createObjectURL(b); a.download=name; document.body.append(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+  },"image/png");
 };
 $("file").onchange=e=>start(e.target.files);
 const drop=$("drop");
