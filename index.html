@@ -33,6 +33,12 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .stage{position:relative;background:radial-gradient(ellipse at 50% 35%,var(--stage2),var(--stage));min-height:0}
 canvas{width:100%;height:100%;display:block;touch-action:none;cursor:grab}
 canvas:active{cursor:grabbing}
+.bgs{position:absolute;left:12px;top:12px;display:flex;gap:6px;align-items:center}
+.bgs button{all:unset;cursor:pointer;width:22px;height:22px;border-radius:50%;border:2px solid rgba(255,255,255,.55);box-shadow:0 0 0 1px rgba(0,0,0,.25)}
+.bgs button[aria-pressed=true]{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent)}
+.stage.light .status,.stage.light .hint,.stage.light .shot{color:rgba(0,0,0,.7)}
+.stage.light .shot button{background:rgba(0,0,0,.08);border-color:rgba(0,0,0,.2);color:#1d1c1a}
+@media(max-width:720px){.bgs{top:48px;left:auto;right:8px;gap:5px}.bgs button{width:24px;height:24px}}
 .shot{position:absolute;right:12px;top:12px;display:flex;gap:10px;align-items:center;color:rgba(255,255,255,.75);font-size:12px}
 .shot label{display:flex;gap:4px;align-items:center;cursor:pointer}
 .shot button{all:unset;cursor:pointer;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.25);color:#fff;border-radius:6px;padding:6px 10px;font-size:12px}
@@ -79,7 +85,7 @@ canvas:active{cursor:grabbing}
   .named-only{font-size:13px}
   .shot{top:8px;right:8px;gap:8px}
   .shot button{padding:8px 10px}
-  .hint{left:12px;right:auto;bottom:8px;font-size:11px}
+  .hint{left:12px;right:12px;bottom:8px;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .status{left:12px;bottom:26px;font-size:11px}
   .drop{padding:14px}
   .drop .card{padding:20px}
@@ -87,7 +93,7 @@ canvas:active{cursor:grabbing}
 </style>
 </head>
 <body>
-<header><h1>トバル2 モデルビューア</h1><span class="sub">手元のディスクイメージからキャラクターを取り出して表示します</span><span class="rev">v1.8.0 ・ 非公式</span></header>
+<header><h1>トバル2 モデルビューア</h1><span class="sub">手元のディスクイメージからキャラクターを取り出して表示します</span><span class="rev">v1.9.0 ・ 非公式</span></header>
 <main>
   <aside id="side" hidden>
     <div><p class="label">キャラクター</p><div class="chars" id="chars"></div></div>
@@ -110,6 +116,7 @@ canvas:active{cursor:grabbing}
   </aside>
   <section class="stage">
     <canvas id="gl"></canvas>
+    <div class="bgs" id="bg-box" hidden aria-label="背景の色"></div>
     <div class="shot" id="shot-box" hidden>
       <label><input type="checkbox" id="shot-clear"> 背景なし</label>
       <button id="shot">スクショを保存</button>
@@ -1048,13 +1055,34 @@ async function start(files){
   $("err").textContent="";
   try{
     state.src=await openSource(files); state.table=readFileTable(state.src.exe);
-    $("drop").hidden=true; $("side").hidden=false; $("hint").hidden=false; $("shot-box").hidden=false;
+    $("drop").hidden=true; $("side").hidden=false; $("hint").hidden=false; $("shot-box").hidden=false; $("bg-box").hidden=false;
     const tracks=bgmTracks(); $("bgm-box").hidden=!tracks.length;
     $("bgm").innerHTML='<option value="-1">なし</option>'+tracks.map((t,i)=>`<option value="${i}">${t.label}</option>`).join("");
     await show();
   }catch(err){ $("err").textContent=err.message; console.error(err) }
 }
 // スクショ: 描いた直後のキャンバスを PNG にして保存する（背景は画面と同じ色、または透明）
+// 背景のプリセット（中心の色, 外側の色, 明るい背景か）。選んだものはこのブラウザに覚えておく
+const BG_PRESETS=[
+  {name:"ダーク",c:"#3a3834",e:"#2a2926",light:false},
+  {name:"黒",c:"#111111",e:"#000000",light:false},
+  {name:"グレー",c:"#8a8a8a",e:"#6a6a6a",light:false},
+  {name:"白",c:"#ffffff",e:"#e6e4df",light:true},
+  {name:"空",c:"#bfe3ff",e:"#5a9fd6",light:true},
+  {name:"夕焼け",c:"#ffcf8a",e:"#c4533a",light:true},
+  {name:"夜",c:"#35407a",e:"#0d1030",light:false},
+  {name:"グリーンバック",c:"#00b140",e:"#00b140",light:false},
+];
+function setBackground(i){
+  const p=BG_PRESETS[i]||BG_PRESETS[0], root=document.documentElement.style;
+  root.setProperty("--stage2",p.c); root.setProperty("--stage",p.e);
+  document.querySelector(".stage").classList.toggle("light",p.light);
+  for(const [k,b] of [...$("bg-box").children].entries()) b.setAttribute("aria-pressed",String(k===i));
+  try{ localStorage.setItem("t2bg",String(i)) }catch(_){}
+}
+BG_PRESETS.forEach((p,i)=>{ const b=document.createElement("button"); b.title=p.name; b.setAttribute("aria-label","背景: "+p.name);
+  b.style.background=`radial-gradient(circle at 40% 35%,${p.c},${p.e})`; b.onclick=()=>setBackground(i); $("bg-box").append(b) });
+(()=>{ let i=0; try{ i=+localStorage.getItem("t2bg")||0 }catch(_){} setBackground(i) })();
 $("bgm").onchange=e=>bgmPlay(+e.target.value);
 $("bgm-vol").oninput=e=>{ bgm.volume=+e.target.value; if(bgm.gain) bgm.gain.gain.value=bgm.volume };
 $("shot").onclick=()=>{
