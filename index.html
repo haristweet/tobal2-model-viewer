@@ -38,7 +38,6 @@ canvas:active{cursor:grabbing}
 .bgs button[aria-pressed=true]{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent)}
 .stage.light .status,.stage.light .hint,.stage.light .shot{color:rgba(0,0,0,.7)}
 .stage.light .shot button{background:rgba(0,0,0,.08);border-color:rgba(0,0,0,.2);color:#1d1c1a}
-@media(max-width:720px){.bgs{top:48px;left:auto;right:8px;gap:5px}.bgs button{width:24px;height:24px}}
 .shot{position:absolute;right:12px;top:12px;display:flex;gap:10px;align-items:center;color:rgba(255,255,255,.75);font-size:12px}
 .shot label{display:flex;gap:4px;align-items:center;cursor:pointer}
 .shot button{all:unset;cursor:pointer;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.25);color:#fff;border-radius:6px;padding:6px 10px;font-size:12px}
@@ -65,47 +64,80 @@ canvas:active{cursor:grabbing}
 .play{all:unset;cursor:pointer;background:var(--ink);color:#fff;border-radius:6px;padding:5px 10px;font-size:12px;white-space:nowrap}
 .motion-ctl input{flex:1;min-width:0;accent-color:var(--accent)}
 /* スマホ: 表示を上に大きく、操作を下にまとめる */
+/* ===== スマホ: 3D を全画面に。操作は下のタブから引き出すシートと、再生バーにまとめる ===== */
+.tabbar,.motion-list,.sheet-close{display:none}
+.look-only{display:none}
 @media(max-width:720px){
-  header{padding:8px 12px calc(8px) max(12px,env(safe-area-inset-left))}
-  header h1{font-size:15px}
+  header{padding:10px 14px}
+  header h1{font-size:16px}
   header .sub{display:none}
-  main{grid-template-columns:1fr;grid-template-rows:minmax(0,1fr) auto}
-  .stage{grid-row:1}
-  aside{grid-row:2;border-right:0;border-top:1px solid var(--line);max-height:44dvh;padding:10px 12px calc(10px + env(safe-area-inset-bottom));display:grid;grid-template-columns:auto 1fr;gap:10px 12px;align-items:start}
-  aside>div:nth-child(1),aside>div:nth-child(4),aside>div:nth-child(5){grid-column:1/-1}
-  .label{margin:0 0 4px 2px;font-size:10px}
-  .chars{flex-direction:row;flex-wrap:nowrap;overflow-x:auto;gap:4px;padding-bottom:2px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
-  .chars::-webkit-scrollbar{display:none}
-  .chars button{white-space:nowrap;padding:8px 12px;border:1px solid var(--line);background:#fff}
-  .seg button{padding:9px 10px;font-size:14px}
-  .pick-motion{font-size:16px;padding:8px}
-  .motion-ctl{gap:8px}
-  .step{padding:9px 13px;font-size:13px}
-  .play{padding:9px 14px;font-size:13px}
-  .named-only{font-size:13px}
-  .shot{top:8px;right:8px;gap:8px}
-  .shot button{padding:8px 10px}
-  .hint{left:12px;right:12px;bottom:8px;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .status{left:12px;bottom:26px;font-size:11px}
+  body.loaded header{display:none}
+  main{display:block;position:relative;flex:1}
+  .stage{position:absolute;left:0;right:0;top:0;bottom:calc(60px + env(safe-area-inset-bottom))}
+  body:not(.loaded) .stage{bottom:0}
+  /* 下のタブ */
+  body.loaded .tabbar{display:flex;position:fixed;left:0;right:0;bottom:0;height:calc(60px + env(safe-area-inset-bottom));padding-bottom:env(safe-area-inset-bottom);background:var(--panel);border-top:1px solid var(--line);z-index:30}
+  .tabbar button{all:unset;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:11px;color:var(--ink2);-webkit-tap-highlight-color:transparent}
+  .tabbar button .ic{font-size:20px;line-height:1}
+  .tabbar button[aria-pressed=true]{color:var(--accent);font-weight:600}
+  /* シート（左の操作欄をそのまま下から出す） */
+  aside{position:fixed;left:0;right:0;bottom:calc(60px + env(safe-area-inset-bottom));max-height:52dvh;overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;
+        background:var(--panel);border:0;border-radius:18px 18px 0 0;box-shadow:0 -10px 30px rgba(0,0,0,.35);padding:6px 16px 16px;z-index:25;display:block}
+  aside:not(.open){display:none!important}
+  aside>div{display:none;margin-top:12px}
+  aside[data-tab=chara]>[data-tab=chara],aside[data-tab=move]>[data-tab=move],aside[data-tab=look]>[data-tab=look]{display:block}
+  .sheet-close{display:block;position:sticky;top:0;margin:0 auto;width:40px;height:5px;border-radius:3px;background:var(--line)}
+  .label{margin:0 0 6px 2px;font-size:12px}
+  .chars{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+  .chars button{padding:12px 10px;text-align:center;border:1px solid var(--line);background:#fff;font-size:15px}
+  .seg button{padding:11px 8px;font-size:15px}
+  /* 技の一覧（スマホは選択メニューの代わりに押しやすい行で） */
+  #motion{display:none}
+  .motion-list{display:block;margin-top:8px;border-top:1px solid var(--line)}
+  .motion-list .grp{font-size:11px;color:var(--ink2);letter-spacing:.08em;padding:12px 4px 4px}
+  .motion-list button{all:unset;display:flex;gap:10px;width:100%;box-sizing:border-box;padding:12px 6px;border-bottom:1px solid var(--line);font-size:15px;-webkit-tap-highlight-color:transparent}
+  .motion-list button .no{color:var(--ink2);min-width:2.2em;font-variant-numeric:tabular-nums}
+  .motion-list button[aria-pressed=true]{color:var(--accent);font-weight:600}
+  .named-only{font-size:14px;margin-top:4px}
+  .pick-motion{font-size:16px;padding:10px}
+  /* 背景の色（シートの中） */
+  .bgs{position:static;flex-wrap:wrap;gap:10px}
+  .bgs button{width:38px;height:38px}
+  .shot-opt{display:flex;gap:8px;align-items:center;font-size:14px;margin-top:12px}
+  .bgm-row input{width:110px}
+  /* 画面の上の表示と保存ボタン */
+  .status{top:calc(10px + env(safe-area-inset-top));bottom:auto;left:12px;right:90px;font-size:13px;text-shadow:0 1px 3px rgba(0,0,0,.6)}
+  .stage.light .status{text-shadow:none}
+  .shot{top:calc(8px + env(safe-area-inset-top));right:10px}
+  .shot button{padding:9px 12px;font-size:13px;border-radius:10px}
+  .hint{display:none}
+  /* 再生バー（技を選んでいるときだけ、表示の下に浮かせる） */
+  .stage .motion-ctl{position:absolute;left:10px;right:10px;bottom:10px;margin:0;padding:8px 10px;gap:8px;border-radius:14px;background:rgba(20,19,18,.72);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
+  .stage .motion-ctl .step,.stage .motion-ctl .play{min-width:44px;height:40px;display:flex;align-items:center;justify-content:center;padding:0 10px;font-size:15px;border-radius:10px}
+  .stage .motion-ctl .step{background:rgba(255,255,255,.14);border:0;color:#fff}
+  .stage .motion-ctl .play{background:#fff;color:#1d1c1a}
   .drop{padding:14px}
   .drop .card{padding:20px}
 }
 </style>
 </head>
 <body>
-<header><h1>トバル2 モデルビューア</h1><span class="sub">手元のディスクイメージからキャラクターを取り出して表示します</span><span class="rev">v1.9.0 ・ 非公式</span></header>
+<header><h1>トバル2 モデルビューア</h1><span class="sub">手元のディスクイメージからキャラクターを取り出して表示します</span><span class="rev">v2.0.0 ・ 非公式</span></header>
 <main>
   <aside id="side" hidden>
-    <div><p class="label">キャラクター</p><div class="chars" id="chars"></div></div>
-    <div><p class="label">カラー</p><div class="seg" id="side-seg"><button data-v="1P" aria-pressed="true">1P</button><button data-v="2P" aria-pressed="false">2P</button></div></div>
-    <div><p class="label">モデル</p><div class="seg" id="lod-seg"><button data-v="1" aria-pressed="true">対戦</button><button data-v="2" aria-pressed="false">勝利</button><button data-v="0" aria-pressed="false">クエスト</button></div></div>
-    <div id="bgm-box" hidden><p class="label">BGM</p>
+    <div class="sheet-close" aria-hidden="true"></div>
+    <div data-tab="chara"><p class="label">キャラクター</p><div class="chars" id="chars"></div></div>
+    <div data-tab="chara"><p class="label">カラー</p><div class="seg" id="side-seg"><button data-v="1P" aria-pressed="true">1P</button><button data-v="2P" aria-pressed="false">2P</button></div></div>
+    <div data-tab="chara"><p class="label">モデル</p><div class="seg" id="lod-seg"><button data-v="1" aria-pressed="true">対戦</button><button data-v="2" aria-pressed="false">勝利</button><button data-v="0" aria-pressed="false">クエスト</button></div></div>
+    <div data-tab="look" id="look-bg" class="look-only"><p class="label">背景</p></div>
+    <div id="bgm-box" data-tab="look" hidden><p class="label">BGM</p>
       <div class="bgm-row"><select id="bgm" class="pick-motion"><option value="-1">なし</option></select>
       <input id="bgm-vol" type="range" min="0" max="1" step="0.05" value="0.6" aria-label="音量"></div>
     </div>
-    <div><p class="label">動き</p>
+    <div data-tab="move"><p class="label">動き</p>
       <select id="motion" class="pick-motion"><option value="0">立ち姿</option></select>
       <label class="named-only"><input type="checkbox" id="named-only" checked> 名前のある技だけ</label>
+      <div class="motion-list" id="motion-list"></div>
       <div id="motion-ctl" class="motion-ctl" hidden>
         <button id="prev" class="step" aria-label="1コマ戻す" title="1コマ戻す（←）">◀</button>
         <button id="play" class="play">一時停止</button>
@@ -134,6 +166,11 @@ canvas:active{cursor:grabbing}
     </div>
   </section>
 </main>
+<nav class="tabbar" id="tabbar" aria-label="操作">
+  <button data-tab="chara" aria-pressed="false"><span class="ic">👤</span>キャラ</button>
+  <button data-tab="move" aria-pressed="false"><span class="ic">🥋</span>技</button>
+  <button data-tab="look" aria-pressed="false"><span class="ic">🎨</span>背景・BGM</button>
+</nav>
 <script>
 "use strict";
 // ============================================================
@@ -980,6 +1017,17 @@ function fillMotionList(){
   h+='<optgroup label="技">'+Array.from({length:n},(_,i)=>i+1).filter(m=>!only||names[m]).map(m=>`<option value="m${m}">${m}${names[m]?"　"+names[m]:""}</option>`).join("")+'</optgroup>';
   sel.innerHTML=h;
   sel.value=[...sel.options].some(o=>o.value===keep)?keep:"0";
+  renderMotionList();
+}
+function renderMotionList(){
+  const sel=$("motion"), box=$("motion-list"); box.textContent="";
+  const row=o=>{ const b=document.createElement("button"); b.dataset.v=o.value; b.setAttribute("aria-pressed",String(o.value===sel.value));
+    const m=o.textContent.match(/^(\d+)\s*(.*)$/); if(m){ const n=document.createElement("span"); n.className="no"; n.textContent=m[1]; b.append(n, m[2]||"") } else b.textContent=o.textContent;
+    b.onclick=()=>{ sel.value=o.value; sel.dispatchEvent(new Event("change")); closeSheet() }; return b };
+  for(const el of sel.children){
+    if(el.tagName==="OPTGROUP"){ const g=document.createElement("div"); g.className="grp"; g.textContent=el.label; box.append(g); for(const o of el.children) box.append(row(o)) }
+    else box.append(row(el));
+  }
 }
 // 選択値: "0" 立ち姿 / "m番号" 技 / "v番号" 勝利ポーズ / "d" ダンス
 function selectMotion(v){
@@ -1031,7 +1079,7 @@ CHARACTERS.forEach((c,i)=>{const b=document.createElement("button");b.textConten
   b.onclick=()=>{state.char=i;setPressed($("chars"),b);show()}; $("chars").append(b)});
 $("side-seg").onclick=e=>{const b=e.target.closest("button");if(!b)return;state.side=b.dataset.v;setPressed($("side-seg"),b);show()};
 $("lod-seg").onclick=e=>{const b=e.target.closest("button");if(!b)return;state.lod=+b.dataset.v;setPressed($("lod-seg"),b);show()};
-$("motion").onchange=e=>{ selectMotion(e.target.value); anim.playing=true; $("play").textContent="一時停止"; if(anim.idx) renderFrame(); else upload(anim.model.rest,false); draw(); updateStatus() };
+$("motion").onchange=e=>{ selectMotion(e.target.value); for(const b of $("motion-list").children) if(b.dataset) b.setAttribute("aria-pressed",String(b.dataset.v===e.target.value)); anim.playing=true; $("play").textContent="一時停止"; if(anim.idx) renderFrame(); else upload(anim.model.rest,false); draw(); updateStatus() };
 $("named-only").onchange=()=>{ if(anim.own) fillMotionList() };
 $("play").onclick=()=>{ anim.playing=!anim.playing; $("play").textContent=anim.playing?"一時停止":"再生" };
 // 指定のコマへ（戻るときは動きの頭から計算し直す。ゲームの処理が前のコマの状態を使うため）
@@ -1055,7 +1103,7 @@ async function start(files){
   $("err").textContent="";
   try{
     state.src=await openSource(files); state.table=readFileTable(state.src.exe);
-    $("drop").hidden=true; $("side").hidden=false; $("hint").hidden=false; $("shot-box").hidden=false; $("bg-box").hidden=false;
+    $("drop").hidden=true; $("side").hidden=false; $("hint").hidden=false; $("shot-box").hidden=false; $("bg-box").hidden=false; document.body.classList.add("loaded"); applyLayout();
     const tracks=bgmTracks(); $("bgm-box").hidden=!tracks.length;
     $("bgm").innerHTML='<option value="-1">なし</option>'+tracks.map((t,i)=>`<option value="${i}">${t.label}</option>`).join("");
     await show();
@@ -1083,6 +1131,26 @@ function setBackground(i){
 BG_PRESETS.forEach((p,i)=>{ const b=document.createElement("button"); b.title=p.name; b.setAttribute("aria-label","背景: "+p.name);
   b.style.background=`radial-gradient(circle at 40% 35%,${p.c},${p.e})`; b.onclick=()=>setBackground(i); $("bg-box").append(b) });
 (()=>{ let i=0; try{ i=+localStorage.getItem("t2bg")||0 }catch(_){} setBackground(i) })();
+// スマホ用の配置: 背景の丸と「背景なし」をシートへ、再生バーを表示の上へ
+const mobileMQ=matchMedia("(max-width:720px)");
+const shotOpt=$("shot-clear").closest("label");
+function applyLayout(){
+  const m=mobileMQ.matches, stage=document.querySelector(".stage"), moveSec=$("motion").parentElement;
+  if(m){ $("look-bg").append($("bg-box")); $("look-bg").append(shotOpt); shotOpt.className="shot-opt"; stage.append($("motion-ctl")); $("bg-box").hidden=false }
+  else { stage.insertBefore($("bg-box"),$("shot-box")); $("shot-box").prepend(shotOpt); shotOpt.className=""; moveSec.append($("motion-ctl")); closeSheet() }
+  requestAnimationFrame(draw);
+}
+function openTab(t){
+  const side=$("side"), same=side.classList.contains("open")&&side.dataset.tab===t;
+  if(same){ closeSheet(); return }
+  side.dataset.tab=t; side.classList.add("open"); side.scrollTop=0;
+  for(const b of $("tabbar").children) b.setAttribute("aria-pressed",String(b.dataset.tab===t));
+}
+function closeSheet(){ $("side").classList.remove("open"); for(const b of $("tabbar").children) b.setAttribute("aria-pressed","false") }
+$("tabbar").onclick=e=>{ const b=e.target.closest("button"); if(b) openTab(b.dataset.tab) };
+canvas.addEventListener("pointerdown",()=>{ if(mobileMQ.matches) closeSheet() });
+mobileMQ.addEventListener("change",applyLayout);
+applyLayout();
 $("bgm").onchange=e=>bgmPlay(+e.target.value);
 $("bgm-vol").oninput=e=>{ bgm.volume=+e.target.value; if(bgm.gain) bgm.gain.gain.value=bgm.volume };
 $("shot").onclick=()=>{
