@@ -87,7 +87,7 @@ canvas:active{cursor:grabbing}
 </style>
 </head>
 <body>
-<header><h1>トバル2 モデルビューア</h1><span class="sub">手元のディスクイメージからキャラクターを取り出して表示します</span><span class="rev">v1.7.0 ・ 非公式</span></header>
+<header><h1>トバル2 モデルビューア</h1><span class="sub">手元のディスクイメージからキャラクターを取り出して表示します</span><span class="rev">v1.8.0 ・ 非公式</span></header>
 <main>
   <aside id="side" hidden>
     <div><p class="label">キャラクター</p><div class="chars" id="chars"></div></div>
@@ -745,6 +745,7 @@ class MotionPlayer{
     this.table=EMU.MOT+4+4*(parts.length+1)+parts[0].length+parts[1].length;
     this.count=m.r32(this.table);
   }
+  frameCount(idx){ const m=this.m; return m.r8(U32(this.table+m.r32(this.table+4*idx))) }
   // 動きの番号は 1 始まり（表の先頭は個数）
   start(idx){
     const m=this.m, ptr=U32(this.table+m.r32(this.table+4*idx));
@@ -922,33 +923,64 @@ async function loadRaw(fid){
   const e=state.table[fid], raw=await state.src.readAllbin(e.sector,e.size); state.cache.set(key,raw); return raw;
 }
 // 動き: 0 = 立ち姿、1〜 = モーションファイルの番号
-const anim={idx:0,frame:0,frames:0,playing:true,player:null,model:null,last:0,acc:0,fid:0};
+const anim={idx:0,frame:0,frames:0,playing:true,player:null,own:null,vict:null,seq:[],seqPos:0,kind:"",model:null,last:0,acc:0,fid:0};
+// キャラの勝利用ファイル（種類7）: 実行ファイルの表 0x800d3560[キャラ番号]。キャラ番号はモーションファイルの表 0x800d3684 から逆引き
+function victoryFile(motionFid){
+  const ex=state.src.exe, dv=new DataView(ex.buffer,ex.byteOffset,ex.byteLength), at=a=>0x800+(a-0x80010000);
+  for(let id=0;id<16;id++) if(dv.getUint16(at(0x800d3684)+2*id,true)===motionFid){ const f=dv.getUint16(at(0x800d3560)+2*id,true); return f||null }
+  return null;
+}
 async function show(){
   const c=CHARACTERS[state.char], fid=(state.side==="1P"?c[1]:c[2])[state.lod];
   try{
     const model=await loadModel(fid);
     anim.model=model;
-    if(anim.fid!==c[3]||!anim.player||anim.playerModel!==model){
-      const mraw=await loadRaw(c[3]);
-      anim.player=new MotionPlayer(state.src.exe,mraw,model.bones); anim.playerModel=model; anim.fid=c[3];
-      fillMotionList(anim.player.count);
-      anim.idx=Math.min(anim.idx,anim.player.count);
-      if(anim.idx) startMotion(anim.idx);
+    if(anim.fid!==c[3]||!anim.own||anim.playerModel!==model){
+      anim.own=new MotionPlayer(state.src.exe,await loadRaw(c[3]),model.bones);
+      const vf=victoryFile(c[3]); anim.vict=vf?new MotionPlayer(state.src.exe,await loadRaw(vf),model.bones):null;
+      anim.playerModel=model; anim.fid=c[3];
+      fillMotionList();
+      selectMotion($("motion").value);
     }
     upload(model.rest);
     if(anim.idx) renderFrame();
     draw(); updateStatus();
   }catch(err){ $("status").textContent="表示できませんでした: "+err.message; console.error(err) }
 }
+function motionLabel(){
+  const c=CHARACTERS[state.char];
+  return anim.kind==="dance"?`ダンス ${anim.seqPos+1}/${anim.seq.length}`:anim.kind==="victory"?`勝利ポーズ ${anim.victNo}`:((MOVE_NAMES[c[0]]||{})[anim.idx]||"動き "+anim.idx);
+}
 function updateStatus(){
   const c=CHARACTERS[state.char];
-  $("status").textContent=`${c[0]}  ${state.side}  ${["クエスト","対戦","勝利"][state.lod]}用`+(anim.idx?`  ${(MOVE_NAMES[c[0]]||{})[anim.idx]||"動き "+anim.idx}  ${anim.frame+1}/${anim.frames}`:"");
+  const label=motionLabel();
+  $("status").textContent=`${c[0]}  ${state.side}  ${["クエスト","対戦","勝利"][state.lod]}用`+(anim.idx?`  ${label}  ${anim.frame+1}/${anim.frames}`:"");
 }
-function fillMotionList(n){
-  const sel=$("motion"), keep=sel.value;
-  const names=MOVE_NAMES[CHARACTERS[state.char][0]]||{}, only=$("named-only").checked;
-  sel.innerHTML='<option value="0">立ち姿</option>'+Array.from({length:n},(_,i)=>i+1).filter(m=>!only||names[m]).map(m=>`<option value="${m}">${m}${names[m]?"　"+names[m]:""}</option>`).join("");
+// 勝利用ファイルの中身: 先頭から続く 250 フレームの動きがダンス（隠し）の分割、残りが勝利ポーズ
+function victoryParts(){
+  const v=anim.vict; if(!v) return {dance:[],poses:[]};
+  const all=Array.from({length:v.count},(_,i)=>i+1); let k=0;
+  while(k<all.length&&v.frameCount(all[k])===250) k++;
+  return k>=2?{dance:all.slice(0,k),poses:all.slice(k)}:{dance:[],poses:all};
+}
+function fillMotionList(){
+  const sel=$("motion"), keep=sel.value, n=anim.own?anim.own.count:0;
+  const names=MOVE_NAMES[CHARACTERS[state.char][0]]||{}, only=$("named-only").checked, vp=victoryParts();
+  let h='<option value="0">立ち姿</option>';
+  if(vp.poses.length||vp.dance.length){
+    h+='<optgroup label="勝利">'+vp.poses.map((m,i)=>`<option value="v${m}">勝利ポーズ ${i+1}</option>`).join("")+(vp.dance.length?'<option value="d">ダンス（隠し）</option>':"")+'</optgroup>';
+  }
+  h+='<optgroup label="技">'+Array.from({length:n},(_,i)=>i+1).filter(m=>!only||names[m]).map(m=>`<option value="m${m}">${m}${names[m]?"　"+names[m]:""}</option>`).join("")+'</optgroup>';
+  sel.innerHTML=h;
   sel.value=[...sel.options].some(o=>o.value===keep)?keep:"0";
+}
+// 選択値: "0" 立ち姿 / "m番号" 技 / "v番号" 勝利ポーズ / "d" ダンス
+function selectMotion(v){
+  v=v||"0"; anim.seq=[]; anim.seqPos=0; anim.kind="";
+  if(v==="d"){ const vp=victoryParts(); anim.player=anim.vict; anim.seq=vp.dance; anim.kind="dance"; startMotion(anim.seq[0]||0) }
+  else if(v[0]==="v"&&anim.vict){ anim.player=anim.vict; anim.kind="victory"; anim.victNo=victoryParts().poses.indexOf(+v.slice(1))+1; startMotion(+v.slice(1)) }
+  else if(v[0]==="m"){ anim.player=anim.own; startMotion(+v.slice(1)) }
+  else { anim.player=anim.own; startMotion(0) }
 }
 function startMotion(idx){
   anim.idx=idx; anim.frame=0; anim.acc=0;
@@ -979,7 +1011,10 @@ function tick(t){
   let adv=Math.floor(anim.acc/step); anim.acc-=adv*step;
   if(adv>4){ adv=4; anim.acc=0 }   // 端末が遅いときは遅れを溜めずに間引く
   let f=anim.frame+adv;
-  if(f>=anim.frames){ startMotion(anim.idx); f=0 }   // 最後まで行ったら頭から
+  if(f>=anim.frames){   // 最後まで行ったら頭から（ダンスは次の区切りへ）
+    if(anim.seq.length>1){ anim.seqPos=(anim.seqPos+1)%anim.seq.length; startMotion(anim.seq[anim.seqPos]) } else startMotion(anim.idx);
+    f=0;
+  }
   else for(let k=anim.frame+1;k<f;k++) anim.player.frame(k);   // 飛ばしたフレームも順に計算する
   anim.frame=f; renderFrame(); draw();
 }
@@ -989,8 +1024,8 @@ CHARACTERS.forEach((c,i)=>{const b=document.createElement("button");b.textConten
   b.onclick=()=>{state.char=i;setPressed($("chars"),b);show()}; $("chars").append(b)});
 $("side-seg").onclick=e=>{const b=e.target.closest("button");if(!b)return;state.side=b.dataset.v;setPressed($("side-seg"),b);show()};
 $("lod-seg").onclick=e=>{const b=e.target.closest("button");if(!b)return;state.lod=+b.dataset.v;setPressed($("lod-seg"),b);show()};
-$("motion").onchange=e=>{ startMotion(+e.target.value); anim.playing=true; $("play").textContent="一時停止"; if(anim.idx) renderFrame(); else upload(anim.model.rest,false); draw(); updateStatus() };
-$("named-only").onchange=()=>{ if(anim.player) fillMotionList(anim.player.count) };
+$("motion").onchange=e=>{ selectMotion(e.target.value); anim.playing=true; $("play").textContent="一時停止"; if(anim.idx) renderFrame(); else upload(anim.model.rest,false); draw(); updateStatus() };
+$("named-only").onchange=()=>{ if(anim.own) fillMotionList() };
 $("play").onclick=()=>{ anim.playing=!anim.playing; $("play").textContent=anim.playing?"一時停止":"再生" };
 // 指定のコマへ（戻るときは動きの頭から計算し直す。ゲームの処理が前のコマの状態を使うため）
 function gotoFrame(f){
@@ -1032,7 +1067,7 @@ $("shot").onclick=()=>{
     g.fillStyle=grd; g.fillRect(0,0,out.width,out.height);
   }
   g.drawImage(canvas,0,0);
-  const c=CHARACTERS[state.char], mv=anim.idx?`_${((MOVE_NAMES[c[0]]||{})[anim.idx]||"動き"+anim.idx)}_${anim.frame+1}`:"";
+  const c=CHARACTERS[state.char], mv=anim.idx?`_${motionLabel().replace(/\s+/g,"")}_${anim.frame+1}`:"";
   const name=`tobal2_${c[0]}_${state.side}_${["クエスト","対戦","勝利"][state.lod]}${mv}.png`.replace(/[\\/:*?"<>|\s]/g,"_");
   out.toBlob(async b=>{
     const file=new File([b],name,{type:"image/png"});
