@@ -122,7 +122,7 @@ canvas:active{cursor:grabbing}
 </style>
 </head>
 <body>
-<header><h1>トバル2 モデルビューア</h1><span class="sub">手元のディスクイメージからキャラクターを取り出して表示します</span><span class="rev">v2.2.0 ・ 非公式</span></header>
+<header><h1>トバル2 モデルビューア</h1><span class="sub">手元のディスクイメージからキャラクターを取り出して表示します</span><span class="rev">v2.2.1 ・ 非公式</span></header>
 <main>
   <aside id="side" hidden>
     <div class="sheet-close" aria-hidden="true"></div>
@@ -1169,6 +1169,9 @@ function openTab(t){
   const side=$("side"), same=side.classList.contains("open")&&side.dataset.tab===t;
   if(same){ closeSheet(); return }
   side.dataset.tab=t; side.classList.add("open"); side.scrollTop=0;
+  // 技のシートは選択中の行が上寄りに見える位置から（上から順に選んでいくので次の行が見えるように）
+  const cur=t==="move"&&$("motion-list").querySelector('button[aria-pressed="true"]');
+  if(cur&&$("motion").value!=="0") side.scrollTop=cur.getBoundingClientRect().top-side.getBoundingClientRect().top-cur.offsetHeight*2;
   for(const b of $("tabbar").children) b.setAttribute("aria-pressed",String(b.dataset.tab===t));
 }
 function closeSheet(){ $("side").classList.remove("open"); for(const b of $("tabbar").children) b.setAttribute("aria-pressed","false") }
