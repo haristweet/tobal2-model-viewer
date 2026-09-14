@@ -65,6 +65,13 @@ canvas:active{cursor:grabbing}
 .step:hover{background:var(--accent-soft)}
 .play{all:unset;cursor:pointer;background:var(--ink);color:#fff;border-radius:6px;padding:5px 10px;font-size:12px;white-space:nowrap}
 .motion-ctl input{flex:1;min-width:0;accent-color:var(--accent)}
+.rec-wrap{position:relative}
+.rec{white-space:nowrap}
+.rec-menu{position:fixed;z-index:50;display:flex;flex-direction:column;min-width:220px;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.18);overflow:hidden}
+.rec-menu button{all:unset;cursor:pointer;padding:10px 12px;font-size:13px;color:var(--ink);border-bottom:1px solid var(--line)}
+.rec-menu button:last-child{border-bottom:0}
+.rec-menu button:hover{background:var(--accent-soft)}
+.rec-menu small{display:block;color:var(--ink2);font-size:11px;margin-top:2px}
 /* スマホ: 表示を上に大きく、操作を下にまとめる */
 /* ===== スマホ: 3D を全画面に。操作は下のタブから引き出すシートと、再生バーにまとめる ===== */
 .tabbar,.motion-list,.sheet-close{display:none}
@@ -118,13 +125,15 @@ canvas:active{cursor:grabbing}
   .stage .motion-ctl .step,.stage .motion-ctl .play{min-width:44px;height:40px;display:flex;align-items:center;justify-content:center;padding:0 10px;font-size:15px;border-radius:10px}
   .stage .motion-ctl .step{background:rgba(255,255,255,.14);border:0;color:#fff}
   .stage .motion-ctl .play{background:#fff;color:#1d1c1a}
+  .stage .motion-ctl .rec{height:40px;display:flex;align-items:center;padding:0 10px;font-size:13px;border-radius:10px;background:rgba(255,255,255,.14);border:0;color:#fff}
+  .rec-menu button{padding:14px;font-size:15px}
   .drop{padding:14px}
   .drop .card{padding:20px}
 }
 </style>
 </head>
 <body>
-<header><h1>トバル2 モデルビューア</h1><span class="sub">手元のディスクイメージからキャラクターを取り出して表示します</span><span class="rev">v2.3.0 ・ 非公式</span></header>
+<header><h1>トバル2 モデルビューア</h1><span class="sub">手元のディスクイメージからキャラクターを取り出して表示します</span><span class="rev">v2.4.0 ・ 非公式</span></header>
 <main>
   <aside id="side" hidden>
     <div class="sheet-close" aria-hidden="true"></div>
@@ -145,6 +154,11 @@ canvas:active{cursor:grabbing}
         <button id="play" class="play">一時停止</button>
         <button id="next" class="step" aria-label="1コマ進める" title="1コマ進める（→）">▶</button>
         <input id="scrub" type="range" min="0" max="0" value="0" aria-label="コマ">
+        <span class="rec-wrap"><button id="rec" class="step rec" title="この動きを1回分保存">動画</button>
+          <span class="rec-menu" id="rec-menu" hidden>
+            <button data-fmt="video">動画（MP4／WebM）<small>背景の色つき・スマホの写真に保存できる</small></button>
+            <button data-fmt="apng">アニメーション PNG<small>「背景なし」なら透過・30コマ/秒</small></button>
+          </span></span>
       </div>
     </div>
   </aside>
@@ -154,6 +168,7 @@ canvas:active{cursor:grabbing}
     <div class="shot" id="shot-box" hidden>
       <label id="gouraud-opt"><input type="checkbox" id="gouraud"> なめらかな陰影</label>
       <label><input type="checkbox" id="shot-clear"> 背景なし</label>
+      <label id="crop-opt"><input type="checkbox" id="shot-crop"> キャラだけ切り抜き</label>
       <button id="shot">スクショを保存</button>
     </div>
     <div class="status" id="status"></div>
@@ -1175,11 +1190,11 @@ BG_PRESETS.forEach((p,i)=>{ const b=document.createElement("button"); b.title=p.
 (()=>{ let i=0; try{ i=+localStorage.getItem("t2bg")||0 }catch(_){} setBackground(i) })();
 // スマホ用の配置: 背景の丸と「背景なし」をシートへ、再生バーを表示の上へ
 const mobileMQ=matchMedia("(max-width:720px)");
-const shotOpt=$("shot-clear").closest("label"), gouraudOpt=$("gouraud-opt");
+const shotOpt=$("shot-clear").closest("label"), gouraudOpt=$("gouraud-opt"), cropOpt=$("crop-opt");
 function applyLayout(){
   const m=mobileMQ.matches, stage=document.querySelector(".stage"), moveSec=$("motion").parentElement;
-  if(m){ $("look-bg").append($("bg-box")); $("look-bg").append(gouraudOpt); $("look-bg").append(shotOpt); shotOpt.className=gouraudOpt.className="shot-opt"; stage.append($("motion-ctl")); $("bg-box").hidden=false }
-  else { stage.insertBefore($("bg-box"),$("shot-box")); $("shot-box").prepend(shotOpt); $("shot-box").prepend(gouraudOpt); shotOpt.className=gouraudOpt.className=""; moveSec.append($("motion-ctl")); closeSheet() }
+  if(m){ $("look-bg").append($("bg-box")); $("look-bg").append(gouraudOpt); $("look-bg").append(shotOpt); $("look-bg").append(cropOpt); shotOpt.className=gouraudOpt.className=cropOpt.className="shot-opt"; stage.append($("motion-ctl")); $("bg-box").hidden=false }
+  else { stage.insertBefore($("bg-box"),$("shot-box")); $("shot-box").prepend(cropOpt); $("shot-box").prepend(shotOpt); $("shot-box").prepend(gouraudOpt); shotOpt.className=gouraudOpt.className=cropOpt.className=""; moveSec.append($("motion-ctl")); closeSheet() }
   requestAnimationFrame(draw);
 }
 function openTab(t){
@@ -1205,26 +1220,162 @@ $("gouraud").onchange=e=>{
 };
 $("bgm").onchange=e=>bgmPlay(+e.target.value);
 $("bgm-vol").oninput=e=>{ bgm.volume=+e.target.value; if(bgm.gain) bgm.gain.gain.value=bgm.volume };
+// 保存: スマホは共有シート（写真に保存できる）、それ以外はダウンロード
+async function saveBlob(blob,name){
+  const file=new File([blob],name,{type:blob.type});
+  if(matchMedia("(pointer:coarse)").matches&&navigator.canShare&&navigator.canShare({files:[file]})){
+    try{ await navigator.share({files:[file]}); return }catch(err){ if(err.name==="AbortError") return }
+  }
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=name; document.body.append(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+}
+function fileBase(withFrame){
+  const c=CHARACTERS[state.char], mv=anim.idx?`_${motionLabel().replace(/\s+/g,"")}${withFrame?"_"+(anim.frame+1):""}`:"";
+  return `tobal2_${charName(c)}_${state.side}${lodLabel(c).trim()?"_"+lodLabel(c).trim():""}${mv}`.replace(/[\\/:*?"<>|\s]/g,"_");
+}
+// 画面と同じ背景（中心が明るい円形のグラデーション）を、キャンバス全体の中の (ox,oy) から切り出す位置で塗る
+function paintBackground(g,W,H,ox,oy,w,h){
+  const st=getComputedStyle(document.documentElement), cx=W/2-ox, cy=H*.35-oy, grd=g.createRadialGradient(cx,cy,0,cx,cy,Math.max(W,H)*.7);
+  grd.addColorStop(0,st.getPropertyValue("--stage2").trim()||"#3a3834"); grd.addColorStop(1,st.getPropertyValue("--stage").trim()||"#2a2926");
+  g.fillStyle=grd; g.fillRect(0,0,w,h);
+}
+// 描いたキャンバスで不透明な画素の範囲（キャラのいる所）。box があれば広げる
+const probe=document.createElement("canvas"), probeG=probe.getContext("2d",{willReadFrequently:true});
+function opaqueBox(box){
+  const W=canvas.width, H=canvas.height; probe.width=W; probe.height=H; probeG.clearRect(0,0,W,H); probeG.drawImage(canvas,0,0);
+  const d=probeG.getImageData(0,0,W,H).data;
+  let x0=W,y0=H,x1=-1,y1=-1;
+  for(let y=0;y<H;y+=2){ const row=y*W; for(let x=0;x<W;x+=2) if(d[(row+x)*4+3]>8){ if(x<x0)x0=x; if(x>x1)x1=x; if(y<y0)y0=y; if(y>y1)y1=y } }
+  if(x1<0) return box;
+  x1=Math.min(W,x1+2); y1=Math.min(H,y1+2);
+  return box?{x0:Math.min(box.x0,x0),y0:Math.min(box.y0,y0),x1:Math.max(box.x1,x1),y1:Math.max(box.y1,y1)}:{x0,y0,x1,y1};
+}
+// 範囲に余白を足し、偶数の大きさにそろえる（動画の符号化で奇数が嫌われるため）
+function padBox(b){
+  const W=canvas.width, H=canvas.height, m=Math.round(Math.max(b.x1-b.x0,b.y1-b.y0)*.04)+4;
+  let x0=Math.max(0,b.x0-m), y0=Math.max(0,b.y0-m), x1=Math.min(W,b.x1+m), y1=Math.min(H,b.y1+m);
+  if((x1-x0)%2) x1<W?x1++:x0--; if((y1-y0)%2) y1<H?y1++:y0--;
+  return {x:x0,y:y0,w:x1-x0,h:y1-y0};
+}
 $("shot").onclick=()=>{
   draw();
-  const out=document.createElement("canvas"); out.width=canvas.width; out.height=canvas.height;
+  const W=canvas.width, H=canvas.height, r=$("shot-crop").checked?padBox(opaqueBox(null)||{x0:0,y0:0,x1:W,y1:H}):{x:0,y:0,w:W,h:H};
+  const out=document.createElement("canvas"); out.width=r.w; out.height=r.h;
   const g=out.getContext("2d");
-  if(!$("shot-clear").checked){
-    const st=getComputedStyle(document.documentElement), grd=g.createRadialGradient(out.width/2,out.height*.35,0,out.width/2,out.height*.35,Math.max(out.width,out.height)*.7);
-    grd.addColorStop(0,st.getPropertyValue("--stage2").trim()||"#3a3834"); grd.addColorStop(1,st.getPropertyValue("--stage").trim()||"#2a2926");
-    g.fillStyle=grd; g.fillRect(0,0,out.width,out.height);
-  }
-  g.drawImage(canvas,0,0);
-  const c=CHARACTERS[state.char], mv=anim.idx?`_${motionLabel().replace(/\s+/g,"")}_${anim.frame+1}`:"";
-  const name=`tobal2_${charName(c)}_${state.side}${lodLabel(c).trim()?"_"+lodLabel(c).trim():""}${mv}.png`.replace(/[\\/:*?"<>|\s]/g,"_");
-  out.toBlob(async b=>{
-    const file=new File([b],name,{type:"image/png"});
-    if(matchMedia("(pointer:coarse)").matches&&navigator.canShare&&navigator.canShare({files:[file]})){
-      try{ await navigator.share({files:[file]}); return }catch(err){ if(err.name==="AbortError") return }
-    }
-    const a=document.createElement("a"); a.href=URL.createObjectURL(b); a.download=name; document.body.append(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),2000);
-  },"image/png");
+  if(!$("shot-clear").checked) paintBackground(g,W,H,r.x,r.y,r.w,r.h);
+  g.drawImage(canvas,r.x,r.y,r.w,r.h,0,0,r.w,r.h);
+  out.toBlob(b=>saveBlob(b,fileBase(true)+".png"),"image/png");
 };
+
+// ===== 動きを1回分、動画かアニメーション PNG に保存 =====
+// 各コマを描いて返す。普通の技・勝利ポーズは頭から最後まで、ダンスは区切りを全部つなげる（計算は頭から順に進める必要がある）
+async function* eachFrame(list){
+  for(const [pi,idx] of list.entries()){
+    startMotion(idx); const n=anim.frames;
+    for(let f=0;f<n;f++){ if(f>0) anim.frame=f; renderFrame(); draw(); yield {pi,f,n} }
+  }
+}
+const rec={busy:false,cancel:false};
+function recProgress(t){ $("rec").textContent=t }
+async function recordMotion(fmt){
+  if(rec.busy||!anim.idx) return;
+  rec.busy=true; rec.cancel=false;
+  const keep={idx:anim.idx,frame:anim.frame,playing:anim.playing,seqPos:anim.seqPos};
+  anim.playing=false; $("play").textContent="再生";
+  const list=anim.seq.length>1?anim.seq.slice():[anim.idx];
+  const total=list.reduce((a,idx)=>a+anim.player.frameCount(idx),0);
+  const name=fileBase(false), clear=$("shot-clear").checked&&fmt==="apng", crop=$("shot-crop").checked;
+  try{
+    // 1周目: キャラが動く範囲をまとめて測る
+    const W=canvas.width, H=canvas.height; let box=null, k=0;
+    if(crop) for await (const _ of eachFrame(list)){ if(rec.cancel) throw new Error("cancel"); if(k%2===0) box=opaqueBox(box); if(++k%10===0){ recProgress(`範囲 ${Math.round(k/total*100)}%`); await new Promise(r=>setTimeout(r)) } }
+    let r=crop&&box?padBox(box):{x:0,y:0,w:W-(W%2),h:H-(H%2)};
+    // 大きすぎると重いので縮める（動画は長辺1080、アニメ PNG は長辺540）
+    const cap=fmt==="apng"?540:1080, sc=Math.min(1,cap/Math.max(r.w,r.h));
+    const ow=Math.max(2,Math.round(r.w*sc/2)*2), oh=Math.max(2,Math.round(r.h*sc/2)*2);
+    const out=document.createElement("canvas"); out.width=ow; out.height=oh;
+    const g=out.getContext("2d",{willReadFrequently:fmt==="apng"});
+    const paint=()=>{ g.clearRect(0,0,ow,oh); if(!clear){ g.save(); g.scale(ow/r.w,oh/r.h); paintBackground(g,W,H,r.x,r.y,r.w,r.h); g.restore() } g.drawImage(canvas,r.x,r.y,r.w,r.h,0,0,ow,oh) };
+    let blob;
+    if(fmt==="video") blob=await encodeVideo(out,paint,list,total);
+    else blob=await encodeApng(out,g,paint,list,total);
+    if(blob) await saveBlob(blob,name+(fmt==="apng"?".png":blob.type.includes("mp4")?".mp4":".webm"));
+  }catch(err){ if(err.message!=="cancel"){ console.error(err); alert("保存できませんでした: "+err.message) } }
+  finally{
+    rec.busy=false; recProgress("動画");
+    // 元の場所に戻す
+    if(keep.seqPos!==undefined) anim.seqPos=keep.seqPos;
+    startMotion(keep.idx); for(let f=0;f<keep.frame;f++) anim.player.frame(f); anim.frame=keep.frame; renderFrame(); draw();
+    anim.playing=keep.playing; $("play").textContent=anim.playing?"一時停止":"再生";
+  }
+}
+// 動画: MediaRecorder に1コマずつ渡す。コマの計算中は録画を一時停止しておき、各コマをちょうど 1/60 秒ぶん流す
+async function encodeVideo(out,paint,list,total){
+  if(!window.MediaRecorder||!out.captureStream) throw new Error("このブラウザは動画の書き出しに対応していません");
+  const types=["video/mp4;codecs=avc1","video/mp4","video/webm;codecs=vp9","video/webm;codecs=vp8","video/webm"];
+  const mime=types.find(t=>MediaRecorder.isTypeSupported(t));
+  const stream=out.captureStream(0), track=stream.getVideoTracks()[0];
+  const mr=new MediaRecorder(stream,{mimeType:mime,videoBitsPerSecond:8e6}), chunks=[];
+  mr.ondataavailable=e=>{ if(e.data.size) chunks.push(e.data) };
+  const done=new Promise(res=>mr.onstop=res);
+  const wait=ms=>new Promise(r=>setTimeout(r,ms));
+  let k=0, started=false;
+  for await (const _ of eachFrame(list)){
+    if(rec.cancel){ mr.stop(); await done; throw new Error("cancel") }
+    paint();
+    if(!started){ mr.start(); started=true } else mr.resume();
+    track.requestFrame?track.requestFrame():stream.requestFrame&&stream.requestFrame();
+    await wait(1000/60);
+    mr.pause();
+    if(++k%5===0) recProgress(`書き出し ${Math.round(k/total*100)}%`);
+  }
+  mr.resume(); await wait(1000/60); mr.stop(); await done;
+  return new Blob(chunks,{type:mime.split(";")[0]});
+}
+// アニメーション PNG（APNG）: 各コマを RGBA のまま「上と同じ」フィルタで圧縮して並べる。30コマ/秒（1コマおき）
+const CRC_T=(()=>{ const t=new Uint32Array(256); for(let n=0;n<256;n++){ let c=n; for(let k=0;k<8;k++) c=c&1?0xedb88320^(c>>>1):c>>>1; t[n]=c>>>0 } return t })();
+function pngChunk(type,data){
+  const b=new Uint8Array(12+data.length), dv=new DataView(b.buffer);
+  dv.setUint32(0,data.length); for(let i=0;i<4;i++) b[4+i]=type.charCodeAt(i); b.set(data,8);
+  let c=0xffffffff; for(let i=4;i<8+data.length;i++) c=CRC_T[(c^b[i])&255]^(c>>>8);
+  dv.setUint32(8+data.length,(c^0xffffffff)>>>0); return b;
+}
+async function zlib(u8){ return new Uint8Array(await new Response(new Blob([u8]).stream().pipeThrough(new CompressionStream("deflate"))).arrayBuffer()) }
+async function encodeApng(out,g,paint,list,total){
+  if(!window.CompressionStream) throw new Error("このブラウザはアニメーション PNG の書き出しに対応していません");
+  const w=out.width, h=out.height, frames=Math.ceil(total/2), parts=[new Uint8Array([137,80,78,71,13,10,26,10])];
+  const u32=(...v)=>{ const b=new Uint8Array(v.length*4), dv=new DataView(b.buffer); v.forEach((x,i)=>dv.setUint32(i*4,x)); return b };
+  const ihdr=new Uint8Array(13); ihdr.set(u32(w,h)); ihdr[8]=8; ihdr[9]=6; parts.push(pngChunk("IHDR",ihdr));
+  parts.push(pngChunk("acTL",u32(frames,0)));
+  let seq=0, k=0, fi=0;
+  const raw=new Uint8Array((w*4+1)*h);
+  for await (const _ of eachFrame(list)){
+    if(rec.cancel) throw new Error("cancel");
+    if((k++)%2){ continue }
+    paint();
+    const d=g.getImageData(0,0,w,h).data;
+    for(let y=0;y<h;y++){ const o=y*(w*4+1), s=y*w*4; raw[o]=y?2:0;
+      if(y) for(let i=0;i<w*4;i++) raw[o+1+i]=(d[s+i]-d[s-w*4+i])&255; else raw.set(d.subarray(0,w*4),o+1) }
+    const fc=new Uint8Array(26); fc.set(u32(seq++,w,h,0,0)); new DataView(fc.buffer).setUint16(20,1); new DataView(fc.buffer).setUint16(22,30); fc[24]=0; fc[25]=0;
+    parts.push(pngChunk("fcTL",fc));
+    const z=await zlib(raw);
+    if(fi===0) parts.push(pngChunk("IDAT",z));
+    else { const fd=new Uint8Array(4+z.length); fd.set(u32(seq++)); fd.set(z,4); parts.push(pngChunk("fdAT",fd)) }
+    fi++; recProgress(`書き出し ${Math.round(k/total*100)}%`);
+  }
+  parts.push(pngChunk("IEND",new Uint8Array(0)));
+  return new Blob(parts,{type:"image/png"});
+}
+$("rec").onclick=e=>{
+  e.stopPropagation();
+  if(rec.busy){ rec.cancel=true; return }
+  const menu=$("rec-menu"); menu.hidden=!menu.hidden; if(menu.hidden) return;
+  // ボタンの上に出す（入りきらなければ下）。左右は画面からはみ出さないように
+  const r=$("rec").getBoundingClientRect(), mw=menu.offsetWidth, mh=menu.offsetHeight;
+  menu.style.left=Math.max(8,Math.min(innerWidth-mw-8,r.right-mw))+"px";
+  menu.style.top=(r.top-mh-6>=8?r.top-mh-6:r.bottom+6)+"px";
+};
+$("rec-menu").onclick=e=>{ const b=e.target.closest("button"); if(!b) return; e.stopPropagation(); $("rec-menu").hidden=true; recordMotion(b.dataset.fmt) };
+document.addEventListener("click",()=>{ $("rec-menu").hidden=true });
 $("file").onchange=e=>start(e.target.files);
 const drop=$("drop");
 for(const t of ["dragenter","dragover"]) document.addEventListener(t,e=>{e.preventDefault();drop.classList.add("over")});
