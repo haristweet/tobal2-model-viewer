@@ -49,6 +49,9 @@ canvas:active{cursor:grabbing}
 .err{color:#b91c1c;font-size:13px;margin-top:8px}
 [hidden]{display:none!important}
 .pick-motion{width:100%;font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:7px;background:#fff;color:var(--ink)}
+.bgm-row{display:flex;gap:8px;align-items:center}
+.bgm-row select{flex:1;min-width:0}
+.bgm-row input{width:80px;accent-color:var(--accent)}
 .named-only{display:flex;gap:6px;align-items:center;font-size:12px;color:var(--ink2);margin-top:6px}
 .motion-ctl{display:flex;gap:8px;align-items:center;margin-top:8px}
 .step{all:unset;cursor:pointer;border:1px solid var(--line);border-radius:6px;padding:4px 7px;font-size:11px;color:var(--ink);background:#fff}
@@ -63,7 +66,7 @@ canvas:active{cursor:grabbing}
   main{grid-template-columns:1fr;grid-template-rows:minmax(0,1fr) auto}
   .stage{grid-row:1}
   aside{grid-row:2;border-right:0;border-top:1px solid var(--line);max-height:44dvh;padding:10px 12px calc(10px + env(safe-area-inset-bottom));display:grid;grid-template-columns:auto 1fr;gap:10px 12px;align-items:start}
-  aside>div:nth-child(1),aside>div:nth-child(4){grid-column:1/-1}
+  aside>div:nth-child(1),aside>div:nth-child(4),aside>div:nth-child(5){grid-column:1/-1}
   .label{margin:0 0 4px 2px;font-size:10px}
   .chars{flex-direction:row;flex-wrap:nowrap;overflow-x:auto;gap:4px;padding-bottom:2px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
   .chars::-webkit-scrollbar{display:none}
@@ -84,12 +87,16 @@ canvas:active{cursor:grabbing}
 </style>
 </head>
 <body>
-<header><h1>トバル2 モデルビューア</h1><span class="sub">手元のディスクイメージからキャラクターを取り出して表示します</span><span class="rev">v1.6.0 ・ 非公式</span></header>
+<header><h1>トバル2 モデルビューア</h1><span class="sub">手元のディスクイメージからキャラクターを取り出して表示します</span><span class="rev">v1.7.0 ・ 非公式</span></header>
 <main>
   <aside id="side" hidden>
     <div><p class="label">キャラクター</p><div class="chars" id="chars"></div></div>
     <div><p class="label">カラー</p><div class="seg" id="side-seg"><button data-v="1P" aria-pressed="true">1P</button><button data-v="2P" aria-pressed="false">2P</button></div></div>
     <div><p class="label">モデル</p><div class="seg" id="lod-seg"><button data-v="1" aria-pressed="true">対戦</button><button data-v="2" aria-pressed="false">勝利</button><button data-v="0" aria-pressed="false">クエスト</button></div></div>
+    <div id="bgm-box" hidden><p class="label">BGM</p>
+      <div class="bgm-row"><select id="bgm" class="pick-motion"><option value="-1">なし</option></select>
+      <input id="bgm-vol" type="range" min="0" max="1" step="0.05" value="0.6" aria-label="音量"></div>
+    </div>
     <div><p class="label">動き</p>
       <select id="motion" class="pick-motion"><option value="0">立ち姿</option></select>
       <label class="named-only"><input type="checkbox" id="named-only" checked> 名前のある技だけ</label>
@@ -170,6 +177,8 @@ class BinDisc{
     this.secSize=sync?2352:2048;
     this.dataOff=sync?(head[15]===2?24:16):0;
   }
+  // 1セクタ 2352B そのまま（XA 音声用）。2048B の ISO では読めない
+  async readRaw(lba){ return this.secSize===2352?new Uint8Array(await this.file.slice(lba*2352,(lba+1)*2352).arrayBuffer()):null }
   async read(lba,count){
     const raw=new Uint8Array(await this.file.slice(lba*this.secSize,(lba+count)*this.secSize).arrayBuffer());
     if(this.secSize===2048) return raw;
@@ -345,6 +354,7 @@ class ChdDisc{
     }
     return out;
   }
+  async readRaw(lba){ const pos=lba*this.unitBytes, h=await this.hunk(Math.floor(pos/this.hunkBytes)), o=pos%this.hunkBytes; return h.subarray(o,o+2352) }
   async rootFiles(){return BinDisc.prototype.rootFiles.call(this)}
 }
 async function openSource(fileList){
@@ -366,7 +376,66 @@ async function openSource(fileList){
   if(!/SLPM_860\.33/.test(cnf)||!root["ALLBIN.BIN"]) throw new Error("トバル2のディスクイメージではないようです");
   const ex=root["SLPM_860.33"], ab=root["ALLBIN.BIN"];
   const exe=(await disc.read(ex.lba,Math.ceil(ex.size/2048))).subarray(0,ex.size);
-  return {exe, readAllbin:async(sec,size)=>(await disc.read(ab.lba+sec,Math.ceil(size/2048))).subarray(0,size)};
+  const bgm=["BGM001.XA","BGM002.XA","BGM003.XA"].filter(n=>root[n]).map(n=>({lba:root[n].lba,sectors:Math.ceil(root[n].size/2048)}));
+  const canRaw=!!(await disc.readRaw(16));
+  return {exe, readAllbin:async(sec,size)=>(await disc.read(ab.lba+sec,Math.ceil(size/2048))).subarray(0,size),
+          bgm:canRaw?bgm:[], readRaw:lba=>disc.readRaw(lba)};
+}
+
+// ============================================================
+//  BGM: XA-ADPCM（BGM00x.XA は 8チャンネルを1セクタずつ交互に並べてある。チャンネル = セクタ位置 % 8）
+// ============================================================
+const XA_K0=[0,60,115,98,122], XA_K1=[0,0,-52,-55,-60];
+function xaDecodeSector(b,hist,L,R,off){   // 4bit・ステレオ・37800Hz。1セクタ = 18グループ × 4組 × 28サンプル = 2016 フレーム
+  for(let g=0;g<18;g++){
+    const o=24+g*128;
+    for(let u=0;u<8;u++){
+      const p=b[o+4+u], rng=p&15, flt=(p>>4)&7, ch=u&1, dst=ch?R:L, hh=hist[ch];
+      let h1=hh[0], h2=hh[1]; const k0=XA_K0[flt]||0, k1=XA_K1[flt]||0, base=off+(g*4+(u>>1))*28;
+      for(let i=0;i<28;i++){
+        let n=(b[o+16+i*4+(u>>1)]>>((u&1)*4))&15; if(n&8) n-=16;
+        let v=((n<<12)>>rng)+((h1*k0+h2*k1+32)>>6);
+        v=v<-32768?-32768:v>32767?32767:v; h2=h1; h1=v; dst[base+i]=v/32768;
+      }
+      hh[0]=h1; hh[1]=h2;
+    }
+  }
+}
+const bgm={ctx:null,gain:null,track:-1,timer:null,next:0,pos:0,hist:null,nodes:[],gen:0,volume:0.6};
+function bgmTracks(){ const out=[]; (state.src&&state.src.bgm||[]).forEach(f=>{ for(let c=0;c<8;c++) out.push({file:f,ch:c,label:`曲 ${out.length+1}`}) }); return out }
+function bgmStop(){
+  bgm.gen++; clearInterval(bgm.timer); bgm.timer=null;
+  for(const n of bgm.nodes){ try{ n.stop() }catch(_){} } bgm.nodes=[]; bgm.track=-1;
+}
+async function bgmPlay(idx){
+  bgmStop(); if(idx<0) return;
+  const t=bgmTracks()[idx]; if(!t) return;
+  if(!bgm.ctx){ bgm.ctx=new (window.AudioContext||window.webkitAudioContext)(); bgm.gain=bgm.ctx.createGain(); bgm.gain.connect(bgm.ctx.destination) }
+  await bgm.ctx.resume();
+  bgm.gain.gain.value=bgm.volume;
+  const gen=++bgm.gen; bgm.track=idx; bgm.pos=0; bgm.hist=[[0,0],[0,0]]; bgm.next=bgm.ctx.currentTime+0.15;
+  let busy=false;
+  const pump=async()=>{
+    if(busy||gen!==bgm.gen) return; busy=true;
+    try{
+      while(gen===bgm.gen&&bgm.next-bgm.ctx.currentTime<3){
+        const N=19, buf=bgm.ctx.createBuffer(2,N*2016,37800), L=buf.getChannelData(0), R=buf.getChannelData(1);
+        let n=0;
+        while(n<N){
+          const k=t.ch+bgm.pos*8;
+          const b=k<t.file.sectors?await state.src.readRaw(t.file.lba+k):null;
+          if(gen!==bgm.gen) return;
+          if(!b||!(b[18]&4)){ bgm.pos=0; bgm.hist=[[0,0],[0,0]]; if(n===0) continue; break }   // 曲の終わり → 頭から繰り返す
+          xaDecodeSector(b,bgm.hist,L,R,n*2016); n++; bgm.pos++;
+        }
+        const src=bgm.ctx.createBufferSource(); src.buffer=buf; src.connect(bgm.gain);
+        const when=Math.max(bgm.next,bgm.ctx.currentTime+0.02); src.start(when,0,n*2016/37800); bgm.next=when+n*2016/37800;
+        bgm.nodes.push(src); src.onended=()=>{ bgm.nodes=bgm.nodes.filter(x=>x!==src) };
+      }
+    }catch(err){ console.error(err); $("status").textContent="BGM を再生できませんでした: "+err.message; bgmStop() }
+    finally{ busy=false }
+  };
+  bgm.timer=setInterval(pump,250); pump();
 }
 
 // ============================================================
@@ -945,10 +1014,14 @@ async function start(files){
   try{
     state.src=await openSource(files); state.table=readFileTable(state.src.exe);
     $("drop").hidden=true; $("side").hidden=false; $("hint").hidden=false; $("shot-box").hidden=false;
+    const tracks=bgmTracks(); $("bgm-box").hidden=!tracks.length;
+    $("bgm").innerHTML='<option value="-1">なし</option>'+tracks.map((t,i)=>`<option value="${i}">${t.label}</option>`).join("");
     await show();
   }catch(err){ $("err").textContent=err.message; console.error(err) }
 }
 // スクショ: 描いた直後のキャンバスを PNG にして保存する（背景は画面と同じ色、または透明）
+$("bgm").onchange=e=>bgmPlay(+e.target.value);
+$("bgm-vol").oninput=e=>{ bgm.volume=+e.target.value; if(bgm.gain) bgm.gain.gain.value=bgm.volume };
 $("shot").onclick=()=>{
   draw();
   const out=document.createElement("canvas"); out.width=canvas.width; out.height=canvas.height;
