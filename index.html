@@ -59,6 +59,8 @@ canvas:active{cursor:grabbing}
 .bgm-row{display:flex;gap:8px;align-items:center}
 .bgm-row select{flex:1;min-width:0}
 .bgm-row input{width:80px;accent-color:var(--accent)}
+.note{font-size:11px;color:var(--ink2);margin:4px 0 0}
+#opp{width:100%}
 .named-only{display:flex;gap:6px;align-items:center;font-size:12px;color:var(--ink2);margin-top:6px}
 .motion-ctl{display:flex;gap:8px;align-items:center;margin-top:8px}
 .step{all:unset;cursor:pointer;border:1px solid var(--line);border-radius:6px;padding:4px 7px;font-size:11px;color:var(--ink);background:#fff}
@@ -133,13 +135,14 @@ canvas:active{cursor:grabbing}
 </style>
 </head>
 <body>
-<header><h1>トバル2 モデルビューア</h1><span class="sub">手元のディスクイメージからキャラクターを取り出して表示します</span><span class="rev">v2.4.0 ・ 非公式</span></header>
+<header><h1>トバル2 モデルビューア</h1><span class="sub">手元のディスクイメージからキャラクターを取り出して表示します</span><span class="rev">v2.5.0 ・ 非公式</span></header>
 <main>
   <aside id="side" hidden>
     <div class="sheet-close" aria-hidden="true"></div>
     <div data-tab="chara"><p class="label">キャラクター</p><div class="chars" id="chars"></div></div>
     <div data-tab="chara"><p class="label">カラー</p><div class="seg" id="side-seg"><button data-v="1P" aria-pressed="true">1P</button><button data-v="2P" aria-pressed="false">2P</button></div></div>
     <div data-tab="chara"><p class="label">モデル</p><div class="seg" id="lod-seg"><button data-v="1" aria-pressed="true">対戦</button><button data-v="2" aria-pressed="false">勝利</button><button data-v="0" aria-pressed="false">クエスト</button></div></div>
+    <div data-tab="chara"><p class="label">投げの相手</p><select id="opp" class="pick-motion"><option value="-1">なし（1人で表示）</option></select><p class="note">投げ技を選ぶと、この相手を投げている様子を2人で表示</p></div>
     <div data-tab="look" id="look-bg" class="look-only"><p class="label">背景</p></div>
     <div id="bgm-box" data-tab="look" hidden><p class="label">BGM</p>
       <div class="bgm-row"><select id="bgm" class="pick-motion"><option value="-1">なし</option></select>
@@ -806,7 +809,7 @@ class Mips{
 const EMU={P1:0x80123dcc, P2:0x80126010, ST1:0x801004f8, ST2:0x801008f4, MOT:0x8018abbc,
   SELECT:0x80048a40, START:0x80048bdc, UPDATE:0x80046b40, SINTAB:0x800f1384, MSTACK:0x800f8c8c, MOTPTR:0x8012835c};
 class MotionPlayer{
-  constructor(exe,motionFile,bones){
+  constructor(exe,motionFile,bones,height){
     const m=this.m=new Mips(), dv=new DataView(exe.buffer,exe.byteOffset,exe.byteLength);
     const tsize=dv.getUint32(0x1c,true);
     m.ram.set(exe.subarray(0x800,0x800+tsize),0x10000);
@@ -817,11 +820,15 @@ class MotionPlayer{
     for(const [P,ST,O] of [[EMU.P1,EMU.ST1,EMU.P2],[EMU.P2,EMU.ST2,EMU.P1]]){
       m.w32(P+0x2128,ST); m.w32(P+0x1548,O); m.w32(P+0x1584,EMU.MOT);
       bones.forEach((b,k)=>{ if(k<72){ m.w16(P+0x1a0+8*k,b[0]); m.w16(P+0x1a2+8*k,b[1]); m.w16(P+0x1a4+8*k,b[2]) } });
+      // 腰の高さの倍率 = キャラの身長 ×256 ÷ 基準 11776（ゲームの 0x8002be80 と同じ）。無いと上下の動きが全部 0 になる
+      if(height){ m.w32(P+0x1504,height.h); m.w32(P+0x1508,Math.trunc(height.h*256/height.base)) }
     }
     m.w32(EMU.P2+0x468,0x399); m.w32(EMU.P2+0x46c,0x542);   // 相手（2P）を正面に置く
     const parts=unpack(motionFile);
     this.table=EMU.MOT+4+4*(parts.length+1)+parts[0].length+parts[1].length;
     this.count=m.r32(this.table);
+    // 立ち姿（動き1の最初のコマ）の腰の高さ。表示ではこれを床からの基準として引く
+    try{ this.start(1); this.baseY=this.frame(0)[1].T[1] }catch(_){ this.baseY=0 }
   }
   frameCount(idx){ const m=this.m; return m.r8(U32(this.table+m.r32(this.table+4*idx))) }
   // 動きの番号は 1 始まり（表の先頭は個数）
@@ -884,15 +891,20 @@ void main(){
 }`;
 function sh(t,s){const o=gl.createShader(t);gl.shaderSource(o,s);gl.compileShader(o);if(!gl.getShaderParameter(o,gl.COMPILE_STATUS))throw gl.getShaderInfoLog(o);return o}
 const prog=gl.createProgram(); gl.attachShader(prog,sh(gl.VERTEX_SHADER,VS)); gl.attachShader(prog,sh(gl.FRAGMENT_SHADER,FS)); gl.linkProgram(prog); gl.useProgram(prog);
-const bufs={p:gl.createBuffer(),n:gl.createBuffer(),c:gl.createBuffer(),t0:gl.createBuffer(),t1:gl.createBuffer()};
-const vramTex=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,vramTex);
-for(const [k,v] of [[gl.TEXTURE_MIN_FILTER,gl.NEAREST],[gl.TEXTURE_MAG_FILTER,gl.NEAREST],[gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE],[gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D,k,v);
+// 描く物の層: 0 = 選んだキャラ、1 = 投げの相手。テクスチャ（VRAM）は層ごとに持つ
+function makeLayer(){
+  const tex=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,tex);
+  for(const [k,v] of [[gl.TEXTURE_MIN_FILTER,gl.NEAREST],[gl.TEXTURE_MAG_FILTER,gl.NEAREST],[gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE],[gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D,k,v);
+  return {bufs:{p:gl.createBuffer(),n:gl.createBuffer(),c:gl.createBuffer(),t0:gl.createBuffer(),t1:gl.createBuffer()},tex,count:0,vram:null};
+}
+const layers=[makeLayer(),makeLayer()];
 let triCount=0, center=[0,0,0], radius=1000;
 const view={yaw:0,pitch:0.08,dist:1,pan:[0,0,0]};
 const cam={s:[1,0,0],u:[0,1,0],half:1};   // 描画時のカメラの右・上方向と、注視点の面での画面の半分の高さ
 const shading={gouraud:false};
 try{ shading.gouraud=localStorage.getItem("t2gouraud")==="1" }catch(_){}
-function upload(mesh,fit=true){
+function upload(mesh,fit=true,li=0){
+  const L=layers[li];
   const P=mesh.pos, N=new Float32Array(P.length);
   let mn=[1e9,1e9,1e9], mx=[-1e9,-1e9,-1e9];
   for(let i=0;i<P.length;i+=9){
@@ -909,9 +921,9 @@ function upload(mesh,fit=true){
       for(let k=0;k<3;k++){ const a=acc.get(key(i+k*3)), l=Math.hypot(a[0],a[1],a[2])||1; N[i+k*3]=a[0]/l; N[i+k*3+1]=a[1]/l; N[i+k*3+2]=a[2]/l } }
   }
   if(fit){ center=mn.map((v,a)=>(v+mx[a])/2); radius=Math.hypot(mx[0]-mn[0],mx[1]-mn[1],mx[2]-mn[2])/2; view.pan=[0,0,0] }
-  if(mesh.vram){ gl.bindTexture(gl.TEXTURE_2D,vramTex); gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,1024,512,0,gl.RGBA,gl.UNSIGNED_BYTE,mesh.vram) }
-  for(const [k,data] of [["p",P],["n",N],["c",mesh.col],["t0",mesh.t0],["t1",mesh.t1]]){gl.bindBuffer(gl.ARRAY_BUFFER,bufs[k]);gl.bufferData(gl.ARRAY_BUFFER,data,gl.DYNAMIC_DRAW)}
-  triCount=P.length/3;
+  if(mesh.vram&&L.vram!==mesh.vram){ gl.bindTexture(gl.TEXTURE_2D,L.tex); gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,1024,512,0,gl.RGBA,gl.UNSIGNED_BYTE,mesh.vram); L.vram=mesh.vram }
+  for(const [k,data] of [["p",P],["n",N],["c",mesh.col],["t0",mesh.t0],["t1",mesh.t1]]){gl.bindBuffer(gl.ARRAY_BUFFER,L.bufs[k]);gl.bufferData(gl.ARRAY_BUFFER,data,gl.DYNAMIC_DRAW)}
+  L.count=P.length/3; if(li===0) triCount=L.count;
 }
 function persp(f,a,n,fa){const t=1/Math.tan(f/2);return[t/a,0,0,0, 0,t,0,0, 0,0,(fa+n)/(n-fa),-1, 0,0,2*fa*n/(n-fa),0]}
 function mul4(a,b){const r=new Array(16).fill(0);for(let i=0;i<4;i++)for(let j=0;j<4;j++)for(let k=0;k<4;k++)r[j*4+i]+=a[k*4+i]*b[j*4+k];return r}
@@ -930,8 +942,12 @@ function draw(){
   const P=persp(0.62,w/h,radius*0.02,radius*20);
   gl.uniformMatrix4fv(gl.getUniformLocation(prog,"mvp"),false,mul4(P,V));
   gl.uniformMatrix4fv(gl.getUniformLocation(prog,"model"),false,[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]);
-  for(const [k,size] of [["p",3],["n",3],["c",3],["t0",3],["t1",4]]){const loc=gl.getAttribLocation(prog,k); gl.bindBuffer(gl.ARRAY_BUFFER,bufs[k]); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc,size,gl.FLOAT,false,0,0)}
-  gl.drawArrays(gl.TRIANGLES,0,triCount);
+  for(const L of layers){
+    if(!L.count||(L!==layers[0]&&!duo.on)) continue;
+    gl.bindTexture(gl.TEXTURE_2D,L.tex);
+    for(const [k,size] of [["p",3],["n",3],["c",3],["t0",3],["t1",4]]){const loc=gl.getAttribLocation(prog,k); gl.bindBuffer(gl.ARRAY_BUFFER,L.bufs[k]); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc,size,gl.FLOAT,false,0,0)}
+    gl.drawArrays(gl.TRIANGLES,0,L.count);
+  }
 }
 // 操作: 左ドラッグ=回転、右ドラッグ／Shift＋ドラッグ／中ボタン=移動、ホイール=カーソル位置へ拡大、2本指=移動と拡大
 const pointers=new Map(); let dragMode=null;
@@ -1009,7 +1025,10 @@ async function loadModel(fid){
   const e=state.table[fid], raw=await state.src.readAllbin(e.sector,e.size);
   const out=decompress(unpack(raw)[0]);
   const blk=new Uint8Array(out.length+8); blk.set(out,8); new DataView(blk.buffer).setUint32(0,out.length+8,true);
-  const model={blk,bones:bonesFromBlock(blk),vram:buildVram(unpack(raw)[2])};
+  const parts=unpack(raw), p4=parts[4];
+  // 身長など（部分4: +8 身長、+12 基準値）
+  const height=p4&&p4.length>=16?{h:new DataView(p4.buffer,p4.byteOffset).getInt32(8,true),base:new DataView(p4.buffer,p4.byteOffset).getInt32(12,true)||11776}:null;
+  const model={blk,bones:bonesFromBlock(blk),vram:buildVram(parts[2]),height};
   model.rest=buildMesh(blk); model.rest.vram=model.vram;
   state.cache.set(fid,model); return model;
 }
@@ -1018,6 +1037,8 @@ async function loadRaw(fid){
   const e=state.table[fid], raw=await state.src.readAllbin(e.sector,e.size); state.cache.set(key,raw); return raw;
 }
 // 動き: 0 = 立ち姿、1〜 = モーションファイルの番号
+// 投げの2人表示: 相手キャラ(char)、相手のモデルと、選んだキャラのモーションファイルを相手の骨格で動かすプレイヤー
+const duo={char:-1,on:false,model:null,player:null,key:"",pairs:new Map(),victim:0};
 const anim={idx:0,frame:0,frames:0,playing:true,player:null,own:null,vict:null,seq:[],seqPos:0,kind:"",model:null,last:0,acc:0,fid:0};
 // キャラの勝利用ファイル（種類7）: 実行ファイルの表 0x800d3560[キャラ番号]。キャラ番号はモーションファイルの表 0x800d3684 から逆引き
 function victoryFile(motionFid){
@@ -1033,13 +1054,15 @@ async function show(){
   try{
     const model=await loadModel(fid);
     anim.model=model;
+    const duoChanged=await setupDuo();
     if(anim.fid!==c[3]||!anim.own||anim.playerModel!==model){
-      anim.own=new MotionPlayer(state.src.exe,await loadRaw(c[3]),model.bones);
-      const vf=victoryFile(c[3]); anim.vict=vf?new MotionPlayer(state.src.exe,await loadRaw(vf),model.bones):null;
+      const hgt=model.height||(await loadModel((state.side==="1P"?c[1]:c[2])[1])).height;   // 勝利・クエスト用のモデルに無ければ対戦用から
+      anim.own=new MotionPlayer(state.src.exe,await loadRaw(c[3]),model.bones,hgt);
+      const vf=victoryFile(c[3]); anim.vict=vf?new MotionPlayer(state.src.exe,await loadRaw(vf),model.bones,hgt):null;
       anim.playerModel=model; anim.fid=c[3];
       fillMotionList();
       selectMotion($("motion").value);
-    }
+    } else if(duoChanged) resyncMotion();
     upload(model.rest);
     if(anim.idx) renderFrame();
     draw(); updateStatus();
@@ -1055,7 +1078,8 @@ function motionLabel(){
 function updateStatus(){
   const c=CHARACTERS[state.char];
   const label=motionLabel();
-  $("status").textContent=`${charName(c)}  ${state.side}${lodLabel(c)}`+(anim.idx?`  ${label}  ${anim.frame+1}/${anim.frames}`:"");
+  const oc=CHARACTERS[duo.char], vs=duo.on?`（相手: ${oc[4]?oc[4][duo.side==="1P"?0:1]:oc[0]}）`:"";
+  $("status").textContent=`${charName(c)}  ${state.side}${lodLabel(c)}`+(anim.idx?`  ${label}${vs}  ${anim.frame+1}/${anim.frames}`:"");
 }
 // 勝利用ファイルの中身: 先頭から続く 250 フレームの動きがダンス（隠し）の分割、残りが勝利ポーズ
 function victoryParts(){
@@ -1099,18 +1123,75 @@ function startMotion(idx){
   if(!idx){ $("motion-ctl").hidden=true; return }
   try{ anim.frames=anim.player.start(idx) }catch(err){ anim.idx=0; $("status").textContent="この動きは再生できませんでした: "+err.message; return }
   $("motion-ctl").hidden=false; $("scrub").max=Math.max(0,anim.frames-1); $("scrub").value=0;
+  startDuo();
+}
+// 投げ（種類05）の技データの 2〜3 バイト目が、投げられる側の動き（種類06）を指す
+function throwPairs(raw){
+  const p=unpack(raw)[1], dv=new DataView(p.buffer,p.byteOffset,p.byteLength), lo=dv.getUint16(0,true), n=dv.getUint16(2,true)-lo, map=new Map();
+  const off=m=>dv.getUint16(4+4*(m-1),true);
+  for(let m=1;m<=n;m++){ const o=off(m); if(p[o]!==5) continue; const v=dv.getUint16(o+2,true)-lo; if(v>=1&&v<=n&&p[off(v)]===6) map.set(m,v) }
+  return map;
+}
+// 相手のモデルとプレイヤーを用意する。変わったら true
+async function setupDuo(){
+  if(duo.char<0){ const ch=!!duo.key; duo.key=""; duo.player=null; duo.on=false; return ch }
+  const me=CHARACTERS[state.char], oc=CHARACTERS[duo.char];
+  const side=duo.char===state.char&&state.side==="1P"?"2P":"1P";   // 同じキャラ同士なら色を変える
+  const fid=(side==="1P"?oc[1]:oc[2])[1], key=fid+":"+me[3];
+  if(duo.key===key) return false;
+  duo.model=await loadModel(fid);
+  duo.player=new MotionPlayer(state.src.exe,await loadRaw(me[3]),duo.model.bones,duo.model.height);
+  duo.pairs=throwPairs(await loadRaw(me[3]));
+  duo.key=key; duo.side=side; return true;
+}
+// 今の動きをコマ位置を保ったまま計算し直す（相手が変わったとき）
+function resyncMotion(){
+  if(!anim.idx) return;
+  const f=anim.frame; startMotion(anim.idx); for(let k=0;k<f;k++) stepFrame(k); anim.frame=f; renderFrame();
+}
+// 今の動きが投げなら、相手に投げられる側の動きを始める
+function startDuo(){
+  duo.on=false; duo.victim=0;
+  if(!duo.player||anim.player!==anim.own||!anim.idx) return;
+  const v=duo.pairs.get(anim.idx); if(!v) return;
+  try{ duo.frames=duo.player.start(v); duo.victim=v; duo.on=true; duo.track=[] }catch(err){ console.error(err) }
+}
+// 相手の動きが短いときは最後のコマで止める
+const duoFrame=k=>Math.min(k,duo.frames-1);
+function stepFrame(k){ anim.player.frame(k); if(duo.on&&k<duo.frames) duoTrack(k,duo.player.frame(k)) }
+// 投げた相手を放すと、動きのデータ上の腰の水平位置が 0 に戻る（そこから先の水平の移動はゲームの物理）。
+// 実機で測った動き: 放した直前の速さのまま飛び、着地（腰が低くなる）してからは毎コマ約1.7ずつ減速して止まる。上下は動きのデータどおり
+function duoTrack(k,V){
+  const t=duo.track, p=V[1].T, prev=t[k-1];
+  let off=prev?prev.off.slice():[0,0], vel=prev?prev.vel.slice():[0,0], landed=prev?prev.landed:false;
+  if(prev&&p[0]===0&&p[2]===0&&Math.hypot(prev.raw[0],prev.raw[2])>150){
+    const pp=t[k-2]||prev; off=[prev.raw[0]+prev.off[0],prev.raw[2]+prev.off[1]]; vel=[prev.raw[0]-pp.raw[0],prev.raw[2]-pp.raw[2]]; landed=false;
+    off=[off[0]+vel[0],off[1]+vel[1]];
+  } else if(vel[0]||vel[1]){
+    if(!landed&&p[1]<duo.player.baseY*.35) landed=true;
+    if(landed){ const sp=Math.hypot(vel[0],vel[1]), ns=Math.max(0,sp-1.7); vel=sp?[vel[0]*ns/sp,vel[1]*ns/sp]:[0,0] }
+    off=[off[0]+vel[0],off[1]+vel[1]];
+  }
+  t[k]={raw:[p[0],p[1],p[2]],off,vel,landed};
+  return V;
 }
 function renderFrame(){
   if(!anim.idx||!anim.model) return;
   try{
     const S=anim.player.frame(anim.frame), W={};
     // 腰の水平位置は毎フレーム原点に戻す（その場で動く）
-    const ox=S[1].T[0], oz=S[1].T[2];
+    const ox=S[1].T[0], oz=S[1].T[2], oy=anim.own?anim.own.baseY:0;
     // ゲーム内の向き 0 は立ち姿と 90° ずれているので、Y 軸まわりに回して正面を合わせる
     const Y=[0,0,-1,0,1,0,1,0,0];
-    for(const k in S){ const T=[S[k].T[0]-ox,S[k].T[1],S[k].T[2]-oz]; W[k]={R:mat(Y,S[k].R),T:apply(Y,T)} }
+    for(const k in S){ const T=[S[k].T[0]-ox,S[k].T[1]-oy,S[k].T[2]-oz]; W[k]={R:mat(Y,S[k].R),T:apply(Y,T)} }
     const mesh=buildMesh(anim.model.blk,finishSlots(W,anim.model.bones));
     upload(mesh,false);
+    // 投げの相手: 同じ原点・同じ向きで置くと、ゲームどおり組み合った位置になる
+    if(duo.on){
+      const fk=duoFrame(anim.frame), V=duoTrack(fk,duo.player.frame(fk)), W2={}, o2=(duo.track[fk]||{off:[0,0]}).off;
+      for(const k in V){ const T=[V[k].T[0]+o2[0]-ox,V[k].T[1]-oy,V[k].T[2]+o2[1]-oz]; W2[k]={R:mat(Y,V[k].R),T:apply(Y,T)} }
+      const m2=buildMesh(duo.model.blk,finishSlots(W2,duo.model.bones)); m2.vram=duo.model.vram; upload(m2,false,1);
+    }
   }catch(err){ anim.playing=false; $("status").textContent="この動きは再生できませんでした: "+err.message; console.error(err); return }
   $("scrub").value=anim.frame; updateStatus();
 }
@@ -1127,7 +1208,7 @@ function tick(t){
     if(anim.seq.length>1){ anim.seqPos=(anim.seqPos+1)%anim.seq.length; startMotion(anim.seq[anim.seqPos]) } else startMotion(anim.idx);
     f=0;
   }
-  else for(let k=anim.frame+1;k<f;k++) anim.player.frame(k);   // 飛ばしたフレームも順に計算する
+  else for(let k=anim.frame+1;k<f;k++) stepFrame(k);   // 飛ばしたフレームも順に計算する
   anim.frame=f; renderFrame(); draw();
 }
 requestAnimationFrame(tick);
@@ -1138,13 +1219,15 @@ $("side-seg").onclick=e=>{const b=e.target.closest("button");if(!b)return;state.
 $("lod-seg").onclick=e=>{const b=e.target.closest("button");if(!b)return;state.lod=+b.dataset.v;setPressed($("lod-seg"),b);show()};
 $("motion").onchange=e=>{ selectMotion(e.target.value); for(const b of $("motion-list").children) if(b.dataset) b.setAttribute("aria-pressed",String(b.dataset.v===e.target.value)); anim.playing=true; $("play").textContent="一時停止"; if(anim.idx) renderFrame(); else upload(anim.model.rest,false); draw(); updateStatus() };
 $("named-only").onchange=()=>{ if(anim.own) fillMotionList() };
+CHARACTERS.forEach((c,i)=>$("opp").append(new Option(c[4]?c[4][0]:c[0],i)));
+$("opp").onchange=async e=>{ duo.char=+e.target.value; if(!state.src) return; await setupDuo(); resyncMotion(); draw(); updateStatus() };
 $("play").onclick=()=>{ anim.playing=!anim.playing; $("play").textContent=anim.playing?"一時停止":"再生" };
 // 指定のコマへ（戻るときは動きの頭から計算し直す。ゲームの処理が前のコマの状態を使うため）
 function gotoFrame(f){
   if(!anim.idx||!anim.frames) return;
   f=((f%anim.frames)+anim.frames)%anim.frames;
   anim.playing=false; $("play").textContent="再生";
-  if(f<anim.frame){ startMotion(anim.idx); for(let k=0;k<f;k++) anim.player.frame(k) } else for(let k=anim.frame+1;k<f;k++) anim.player.frame(k);
+  if(f<anim.frame){ startMotion(anim.idx); for(let k=0;k<f;k++) stepFrame(k) } else for(let k=anim.frame+1;k<f;k++) stepFrame(k);
   anim.frame=f; renderFrame(); draw();
 }
 $("scrub").oninput=e=>gotoFrame(+e.target.value);
@@ -1304,7 +1387,7 @@ async function recordMotion(fmt){
     rec.busy=false; recProgress("動画");
     // 元の場所に戻す
     if(keep.seqPos!==undefined) anim.seqPos=keep.seqPos;
-    startMotion(keep.idx); for(let f=0;f<keep.frame;f++) anim.player.frame(f); anim.frame=keep.frame; renderFrame(); draw();
+    startMotion(keep.idx); for(let f=0;f<keep.frame;f++) stepFrame(f); anim.frame=keep.frame; renderFrame(); draw();
     anim.playing=keep.playing; $("play").textContent=anim.playing?"一時停止":"再生";
   }
 }
