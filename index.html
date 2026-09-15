@@ -68,6 +68,14 @@ canvas:active{cursor:grabbing}
 .play{all:unset;cursor:pointer;background:var(--ink);color:#fff;border-radius:6px;padding:5px 10px;font-size:12px;white-space:nowrap}
 .motion-ctl input{flex:1;min-width:0;accent-color:var(--accent)}
 .rec-wrap{position:relative}
+.rec-done{position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:16px}
+.rec-done .box{background:#fff;border-radius:14px;padding:14px;max-width:min(92vw,420px);width:100%;display:flex;flex-direction:column;gap:10px;color:var(--ink)}
+.rec-done .pv{background:repeating-conic-gradient(#ddd 0 25%,#fff 0 50%) 0 0/16px 16px;border-radius:8px;display:flex;justify-content:center;max-height:50vh;overflow:hidden}
+.rec-done .pv>*{max-width:100%;max-height:50vh;object-fit:contain}
+.rec-done p{margin:0;font-size:13px;color:var(--ink2)}
+.rec-done .row{display:flex;gap:8px}
+.rec-done button,.rec-done a{all:unset;cursor:pointer;flex:1;text-align:center;padding:12px;border-radius:10px;font-size:15px;background:var(--ink);color:#fff}
+.rec-done .sub{background:#eee;color:var(--ink)}
 .rec{white-space:nowrap}
 .rec-menu{position:fixed;z-index:50;display:flex;flex-direction:column;min-width:220px;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.18);overflow:hidden}
 .rec-menu button{all:unset;cursor:pointer;padding:10px 12px;font-size:13px;color:var(--ink);border-bottom:1px solid var(--line)}
@@ -135,7 +143,7 @@ canvas:active{cursor:grabbing}
 </style>
 </head>
 <body>
-<header><h1>トバル2 モデルビューア</h1><span class="sub">手元のディスクイメージからキャラクターを取り出して表示します</span><span class="rev">v2.5.0 ・ 非公式</span></header>
+<header><h1>トバル2 モデルビューア</h1><span class="sub">手元のディスクイメージからキャラクターを取り出して表示します</span><span class="rev">v2.5.1 ・ 非公式</span></header>
 <main>
   <aside id="side" hidden>
     <div class="sheet-close" aria-hidden="true"></div>
@@ -192,6 +200,7 @@ canvas:active{cursor:grabbing}
   <button data-tab="move" aria-pressed="false"><span class="ic">🥋</span>技</button>
   <button data-tab="look" aria-pressed="false"><span class="ic">🎨</span>背景・BGM</button>
 </nav>
+<div class="rec-done" id="rec-done" hidden><div class="box"><div class="pv" id="rec-pv"></div><p id="rec-info"></p><div class="row"><button id="rec-share">保存する</button><a id="rec-dl" class="sub" download>ダウンロード</a></div><div class="row"><button id="rec-close" class="sub">閉じる</button></div></div></div>
 <script>
 "use strict";
 // ============================================================
@@ -1139,6 +1148,7 @@ async function setupDuo(){
   const side=duo.char===state.char&&state.side==="1P"?"2P":"1P";   // 同じキャラ同士なら色を変える
   const fid=(side==="1P"?oc[1]:oc[2])[1], key=fid+":"+me[3];
   if(duo.key===key) return false;
+  duo.on=false; duo.key="";   // 読み込み中に古い相手のまま再生が進まないように
   duo.model=await loadModel(fid);
   duo.player=new MotionPlayer(state.src.exe,await loadRaw(me[3]),duo.model.bones,duo.model.height);
   duo.pairs=throwPairs(await loadRaw(me[3]));
@@ -1381,8 +1391,13 @@ async function recordMotion(fmt){
     let blob;
     if(fmt==="video") blob=await encodeVideo(out,paint,list,total);
     else blob=await encodeApng(out,g,paint,list,total);
-    if(blob) await saveBlob(blob,name+(fmt==="apng"?".png":blob.type.includes("mp4")?".mp4":".webm"));
-  }catch(err){ if(err.message!=="cancel"){ console.error(err); alert("保存できませんでした: "+err.message) } }
+    if(blob){
+      const fn=name+(fmt==="apng"?".png":blob.type.includes("mp4")?".mp4":".webm");
+      // スマホは書き出しに時間がかかり、終わった時点ではボタンを押した直後と見なされず共有シートが開けない。
+      // 出来上がりを見せて、もう一度押してもらってから共有する
+      if(matchMedia("(pointer:coarse)").matches) showRecDone(blob,fn,fmt); else await saveBlob(blob,fn);
+    }
+  }catch(err){ if(err.message!=="cancel"){ console.error(err); showRecDone(null,"",fmt,err.message) } }
   finally{
     rec.busy=false; recProgress("動画");
     // 元の場所に戻す
@@ -1412,7 +1427,9 @@ async function encodeVideo(out,paint,list,total){
     if(++k%5===0) recProgress(`書き出し ${Math.round(k/total*100)}%`);
   }
   mr.resume(); await wait(1000/60); mr.stop(); await done;
-  return new Blob(chunks,{type:mime.split(";")[0]});
+  const blob=new Blob(chunks,{type:mime.split(";")[0]});
+  if(blob.size<1000) throw new Error("このブラウザでは動画を作れませんでした（アニメーション PNG なら保存できるかもしれません）");
+  return blob;
 }
 // アニメーション PNG（APNG）: 各コマを RGBA のまま「上と同じ」フィルタで圧縮して並べる。30コマ/秒（1コマおき）
 const CRC_T=(()=>{ const t=new Uint32Array(256); for(let n=0;n<256;n++){ let c=n; for(let k=0;k<8;k++) c=c&1?0xedb88320^(c>>>1):c>>>1; t[n]=c>>>0 } return t })();
@@ -1448,6 +1465,21 @@ async function encodeApng(out,g,paint,list,total){
   parts.push(pngChunk("IEND",new Uint8Array(0)));
   return new Blob(parts,{type:"image/png"});
 }
+function showRecDone(blob,name,fmt,error){
+  const box=$("rec-done"), pv=$("rec-pv"); pv.textContent="";
+  if(box.dataset.url) URL.revokeObjectURL(box.dataset.url);
+  if(error){ $("rec-info").textContent="保存できませんでした: "+error; $("rec-share").hidden=true; $("rec-dl").hidden=true; pv.hidden=true; box.hidden=false; return }
+  const url=URL.createObjectURL(blob); box.dataset.url=url; pv.hidden=false;
+  const el=fmt==="apng"?Object.assign(new Image(),{src:url}):Object.assign(document.createElement("video"),{src:url,muted:true,loop:true,autoplay:true,playsInline:true});
+  pv.append(el);
+  $("rec-info").textContent=`${name}（${(blob.size/1048576).toFixed(1)} MB）`;
+  const file=new File([blob],name,{type:blob.type});
+  $("rec-share").hidden=!(navigator.canShare&&navigator.canShare({files:[file]}));
+  $("rec-share").onclick=async()=>{ try{ await navigator.share({files:[file]}) }catch(err){ if(err.name!=="AbortError") $("rec-info").textContent="共有できませんでした: "+err.message } };
+  const dl=$("rec-dl"); dl.hidden=false; dl.href=url; dl.download=name;
+  box.hidden=false;
+}
+$("rec-close").onclick=()=>{ const box=$("rec-done"); box.hidden=true; $("rec-pv").textContent=""; if(box.dataset.url){ URL.revokeObjectURL(box.dataset.url); box.dataset.url="" } };
 $("rec").onclick=e=>{
   e.stopPropagation();
   if(rec.busy){ rec.cancel=true; return }
